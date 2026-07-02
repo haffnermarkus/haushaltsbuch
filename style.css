@@ -756,6 +756,19 @@ body, html {
 
 .form-group.half {
     flex: 1;
+    min-width: 0; /* Verhindert Überlauf */
+}
+
+/* iOS Safari: date-Input auf halbe Breite einschränken wenn alleinstehend */
+.form-row:has(> .form-group.half:only-child) {
+    max-width: 50%;
+}
+
+/* Fallback für Browser ohne :has() Support (älteres iOS) */
+.form-row .form-group.half input[type="date"],
+.form-row .form-group.half input[type="date"]::-webkit-date-and-time-value {
+    width: 100%;
+    -webkit-appearance: none;
 }
 
 .form-control {

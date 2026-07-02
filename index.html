@@ -3,8 +3,24 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Haushaltsbuch Mobil</title>
-    
+    <title>Haushaltsbuch</title>
+    <meta name="description" content="Mobiles Haushaltsbuch mit Google Drive Synchronisierung – Einnahmen und Ausgaben immer dabei.">
+
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="manifest.json">
+
+    <!-- Theme Color (Android Chrome Adressleiste + iOS Status Bar) -->
+    <meta name="theme-color" content="#6366f1">
+
+    <!-- iOS PWA Support -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Haushaltsbuch">
+    <link rel="apple-touch-icon" href="icon-192.png">
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -26,11 +42,7 @@
             <div class="login-card">
                 <div class="logo-area">
                     <div class="logo-icon">
-                        <svg viewBox="0 0 24 24" width="36" height="36" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
-                            <rect x="2" y="4" width="20" height="16" rx="2" ry="2"></rect>
-                            <line x1="12" y1="18" x2="12" y2="18"></line>
-                            <line x1="-1" y1="8" x2="25" y2="8"></line>
-                        </svg>
+                        <img src="icon-192.png" alt="Haushaltsbuch Logo" width="72" height="72" style="border-radius: 18px; box-shadow: 0 8px 24px rgba(99,102,241,0.4);">
                     </div>
                     <h1>Haushaltsbuch</h1>
                     <p>Mobil &amp; Google Drive Sync</p>
@@ -211,9 +223,11 @@
                     </div>
                 </div>
 
-                <div class="form-group">
-                    <label for="field-date">Datum</label>
-                    <input type="date" id="field-date" class="form-control" required>
+                <div class="form-row">
+                    <div class="form-group half">
+                        <label for="field-date">Datum</label>
+                        <input type="date" id="field-date" class="form-control" required>
+                    </div>
                 </div>
 
                 <div class="form-group">

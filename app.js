@@ -1,3 +1,26 @@
+// ==================== PWA: SERVICE WORKER REGISTRIERUNG ====================
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./service-worker.js')
+            .then(reg => console.log('[PWA] Service Worker registriert:', reg.scope))
+            .catch(err => console.warn('[PWA] Service Worker Fehler:', err));
+    });
+}
+
+// ==================== PWA: INSTALL PROMPT (Android Chrome) ====================
+let deferredInstallPrompt = null;
+window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredInstallPrompt = e;
+    // Optional: Zeige einen "App installieren"-Banner in der UI
+    console.log('[PWA] App kann installiert werden.');
+});
+
+window.addEventListener('appinstalled', () => {
+    console.log('[PWA] App wurde installiert!');
+    deferredInstallPrompt = null;
+});
+
 // State Management
 let state = {
     mode: 'local', // 'local' or 'google'
@@ -13,7 +36,7 @@ let state = {
 };
 
 // Default Google Config parameters (Placeholder, configurable in UI)
-const DEFAULT_CLIENT_ID = "";
+const DEFAULT_CLIENT_ID = "283087066617-jcnplsfjoit6asktt3v56ihkeltbppas.apps.googleusercontent.com";
 const DEFAULT_API_KEY = "";
 
 // Month names in German
@@ -51,7 +74,7 @@ document.addEventListener("DOMContentLoaded", () => {
     initUI();
     loadConfig();
     
-    // Check if we have active Google session saved
+    // Bereits eine aktive Session in diesem Tab? → direkt laden
     const savedToken = sessionStorage.getItem('gdrive_access_token');
     const savedFileId = localStorage.getItem('gdrive_file_id');
     if (savedToken && savedFileId) {
@@ -61,10 +84,31 @@ document.addEventListener("DOMContentLoaded", () => {
         showScreen('main-screen');
         updateSyncStatusIndicator('connected', 'Google Drive');
         loadTransactionsFromGoogle();
+    } else if (savedFileId) {
+        // Kein Session-Token, aber früher schon verbunden gewesen →
+        // Warten bis GIS-Bibliothek geladen ist, dann stilles Re-Auth versuchen
+        showScreen('login-screen');
+        waitForGisAndAutoReconnect();
     } else {
         showScreen('login-screen');
     }
 });
+
+// Wartet bis die GIS-Bibliothek verfügbar ist, dann stilles Re-Auth
+function waitForGisAndAutoReconnect() {
+    const maxWait = 5000; // max 5 Sekunden warten
+    const start = Date.now();
+    const check = setInterval(() => {
+        if (typeof google !== 'undefined' && google.accounts) {
+            clearInterval(check);
+            tryAutoReconnect();
+        } else if (Date.now() - start > maxWait) {
+            clearInterval(check);
+            console.log('[Auth] GIS nicht geladen, manuelles Login erforderlich.');
+        }
+    }, 100);
+}
+
 
 function loadConfig() {
     state.clientId = localStorage.getItem('gdrive_client_id') || DEFAULT_CLIENT_ID;
@@ -174,38 +218,80 @@ function saveTransactionsToLocal() {
 }
 
 // ==================== GOOGLE DRIVE CONNECTION ====================
+
+// Erstellt den GIS Token Client und gibt ihn zurück
+function createTokenClient(callback) {
+    return google.accounts.oauth2.initTokenClient({
+        client_id: state.clientId,
+        scope: 'https://www.googleapis.com/auth/drive.file',
+        callback: callback,
+    });
+}
+
+// Wird beim App-Start aufgerufen – versucht lautlos eine neue Session zu holen
+// ohne dass der Nutzer etwas tun muss (kein Popup wenn bereits eingeloggt)
+function tryAutoReconnect() {
+    if (!state.clientId) return;
+    const savedFileId = localStorage.getItem('gdrive_file_id');
+    if (!savedFileId) return; // Noch nie verbunden → kein Auto-Reconnect
+
+    try {
+        const client = createTokenClient((response) => {
+            if (response.error) {
+                // Stilles Re-Auth hat nicht geklappt → kein Problem, Nutzer kann manuell verbinden
+                console.log('[Auth] Stilles Re-Auth fehlgeschlagen:', response.error);
+                return;
+            }
+            // Erfolg: Token ohne Nutzerinteraktion erneuert
+            onAuthSuccess(response.access_token, savedFileId);
+        });
+        // prompt='none' → kein Popup, kein Account-Wechsel – nur stilles Token-Refresh
+        client.requestAccessToken({ prompt: 'none' });
+    } catch (e) {
+        console.warn('[Auth] Auto-Reconnect nicht möglich:', e.message);
+    }
+}
+
+// Wird beim Klick auf "Mit Google Drive verbinden" aufgerufen
 function handleGoogleConnect() {
-    if (!state.clientId || !state.apiKey) {
-        alert("Bitte konfigurieren Sie zuerst Ihre Google Client ID und Ihren API-Schlüssel in den Einstellungen!");
+    if (!state.clientId) {
+        alert("Bitte konfigurieren Sie zuerst Ihre Google Client ID in den Einstellungen!");
         showOverlay('settings-dialog');
         return;
     }
 
     try {
-        // Init GIS OAuth token client
-        tokenClient = google.accounts.oauth2.initTokenClient({
-            client_id: state.clientId,
-            scope: 'https://www.googleapis.com/auth/drive.file',
-            callback: (response) => {
-                if (response.error !== undefined) {
-                    alert(`Fehler bei Authentifizierung: ${response.error}`);
-                    return;
-                }
-                state.mode = 'google';
-                state.accessToken = response.access_token;
-                sessionStorage.setItem('gdrive_access_token', response.access_token);
-                
-                showScreen('main-screen');
-                updateSyncStatusIndicator('connected', 'Google Drive');
-                
-                // Load or find transactions file
-                findOrCreateTransactionsFile();
-            },
+        tokenClient = createTokenClient((response) => {
+            if (response.error !== undefined) {
+                alert(`Fehler bei Authentifizierung: ${response.error}`);
+                return;
+            }
+            onAuthSuccess(response.access_token, localStorage.getItem('gdrive_file_id'));
         });
-        
-        tokenClient.requestAccessToken({ prompt: 'consent' });
+
+        // 'select_account' zeigt die Account-Auswahl (kein erzwungenes Consent mehr!)
+        // Nur beim ersten Mal fragt Google nach Zustimmung – danach direkt weiter.
+        tokenClient.requestAccessToken({ prompt: 'select_account' });
     } catch (e) {
         alert(`Google client error: ${e.message}`);
+    }
+}
+
+// Gemeinsame Logik nach erfolgreichem Token-Erhalt
+function onAuthSuccess(accessToken, existingFileId) {
+    state.mode = 'google';
+    state.accessToken = accessToken;
+    sessionStorage.setItem('gdrive_access_token', accessToken);
+
+    showScreen('main-screen');
+    updateSyncStatusIndicator('connected', 'Google Drive');
+
+    if (existingFileId) {
+        // Bereits bekannte File-ID → direkt laden, kein neues Suchen nötig
+        state.fileId = existingFileId;
+        loadTransactionsFromGoogle();
+    } else {
+        findOrCreateTransactionsFile();
     }
 }
 
@@ -230,7 +316,7 @@ async function apiCall(url, options = {}) {
 async function findOrCreateTransactionsFile() {
     try {
         // Search for transactions.json
-        const searchUrl = `https://www.googleapis.com/drive/v3/files?q=name='transactions.json'+and+trashed=false&key=${state.apiKey}`;
+        const searchUrl = `https://www.googleapis.com/drive/v3/files?q=name='transactions.json'+and+trashed=false${state.apiKey ? `&key=${state.apiKey}` : ''}`;
         let response = await apiCall(searchUrl);
         if (!response) return;
         
@@ -652,4 +738,16 @@ function handleTransactionDeleteConfirmed() {
     }
     hideOverlay('confirm-dialog');
     state.deletingTransactionId = null;
+}
+
+// ==================== PWA: APP INSTALL HELPER ====================
+// Kann aufgerufen werden um den nativen Installations-Dialog auszulösen
+function triggerPwaInstall() {
+    if (deferredInstallPrompt) {
+        deferredInstallPrompt.prompt();
+        deferredInstallPrompt.userChoice.then(choice => {
+            console.log('[PWA] Nutzer hat gewählt:', choice.outcome);
+            deferredInstallPrompt = null;
+        });
+    }
 }
