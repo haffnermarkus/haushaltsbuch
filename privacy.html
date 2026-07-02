@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Datenschutzerklärung – Haushaltsbuch</title>
+    <meta name="description" content="Datenschutzerklärung der Haushaltsbuch Web-App von Markus Haffner.">
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            font-size: 16px;
+            line-height: 1.7;
+            color: #1a1a2e;
+            background: #f8f9fa;
+        }
+
+        header {
+            background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+            color: #fff;
+            padding: 48px 24px 40px;
+            text-align: center;
+        }
+
+        header .logo {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 64px;
+            height: 64px;
+            background: rgba(255,255,255,0.2);
+            border-radius: 16px;
+            margin-bottom: 16px;
+        }
+
+        header h1 {
+            font-size: 2rem;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+
+        header p {
+            font-size: 1rem;
+            opacity: 0.85;
+        }
+
+        .container {
+            max-width: 780px;
+            margin: 0 auto;
+            padding: 48px 24px 80px;
+        }
+
+        .meta-box {
+            background: #fff;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 20px 24px;
+            margin-bottom: 40px;
+            display: flex;
+            gap: 32px;
+            flex-wrap: wrap;
+        }
+
+        .meta-box .meta-item {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .meta-box .meta-label {
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: #6b7280;
+        }
+
+        .meta-box .meta-value {
+            font-size: 0.95rem;
+            color: #111827;
+            font-weight: 500;
+        }
+
+        section {
+            background: #fff;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 28px 32px;
+            margin-bottom: 20px;
+        }
+
+        section h2 {
+            font-size: 1.15rem;
+            font-weight: 700;
+            color: #4f46e5;
+            margin-bottom: 16px;
+            padding-bottom: 12px;
+            border-bottom: 2px solid #e8e7ff;
+        }
+
+        section p {
+            color: #374151;
+            margin-bottom: 12px;
+        }
+
+        section p:last-child { margin-bottom: 0; }
+
+        section ul {
+            list-style: none;
+            margin: 8px 0 12px;
+            padding: 0;
+        }
+
+        section ul li {
+            padding: 6px 0 6px 20px;
+            position: relative;
+            color: #374151;
+        }
+
+        section ul li::before {
+            content: "✓";
+            position: absolute;
+            left: 0;
+            color: #6366f1;
+            font-weight: 700;
+        }
+
+        .highlight-box {
+            background: #f0f9ff;
+            border: 1px solid #bae6fd;
+            border-radius: 8px;
+            padding: 14px 18px;
+            margin: 12px 0;
+            color: #0c4a6e;
+            font-size: 0.95rem;
+        }
+
+        .highlight-box strong { color: #0369a1; }
+
+        a { color: #4f46e5; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+
+        .contact-card {
+            background: linear-gradient(135deg, #f0f0ff 0%, #e8e7ff 100%);
+            border: 1px solid #c7d2fe;
+            border-radius: 12px;
+            padding: 24px 28px;
+            margin-top: 8px;
+        }
+
+        .contact-card p { margin-bottom: 6px; color: #374151; }
+        .contact-card strong { color: #4338ca; }
+
+        footer {
+            text-align: center;
+            padding: 32px 24px;
+            color: #9ca3af;
+            font-size: 0.875rem;
+            border-top: 1px solid #e5e7eb;
+        }
+
+        @media (max-width: 600px) {
+            header h1 { font-size: 1.5rem; }
+            section { padding: 20px; }
+            .meta-box { gap: 16px; }
+        }
+    </style>
+</head>
+<body>
+
+<header>
+    <div class="logo">
+        <svg viewBox="0 0 24 24" width="32" height="32" stroke="#fff" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="4" width="20" height="16" rx="2"></rect>
+            <line x1="2" y1="10" x2="22" y2="10"></line>
+            <line x1="7" y1="15" x2="9" y2="15"></line>
+            <line x1="12" y1="15" x2="16" y2="15"></line>
+        </svg>
+    </div>
+    <h1>Datenschutzerklärung</h1>
+    <p>Haushaltsbuch – Persönliche Finanzverwaltung</p>
+</header>
+
+<div class="container">
+
+    <div class="meta-box">
+        <div class="meta-item">
+            <span class="meta-label">Zuletzt aktualisiert</span>
+            <span class="meta-value">2. Juli 2026</span>
+        </div>
+        <div class="meta-item">
+            <span class="meta-label">Anwendung</span>
+            <span class="meta-value">Haushaltsbuch (haffnermarkus.github.io)</span>
+        </div>
+        <div class="meta-item">
+            <span class="meta-label">Anbieter</span>
+            <span class="meta-value">Markus Haffner</span>
+        </div>
+    </div>
+
+    <!-- 1. Überblick -->
+    <section>
+        <h2>1. Überblick und Zweck der Anwendung</h2>
+        <p>
+            Haushaltsbuch ist eine private Webanwendung zur persönlichen Finanzverwaltung.
+            Sie dient ausschließlich dazu, Einnahmen und Ausgaben zu erfassen, zu kategorisieren
+            und monatlich auszuwerten.
+        </p>
+        <p>
+            Die Anwendung wird ausschließlich für den privaten Gebrauch durch eine sehr kleine Anzahl
+            bekannter Personen betrieben. Es handelt sich nicht um einen kommerziellen Dienst.
+        </p>
+    </section>
+
+    <!-- 2. Erhobene Daten -->
+    <section>
+        <h2>2. Welche Daten werden verarbeitet?</h2>
+        <p>Die Anwendung verarbeitet ausschließlich Daten, die der Nutzer selbst eingibt:</p>
+        <ul>
+            <li>Titel einer Buchung (z. B. „Supermarkt", „Gehalt")</li>
+            <li>Betrag in Euro</li>
+            <li>Kategorie (z. B. Lebensmittel, Transport)</li>
+            <li>Datum der Buchung</li>
+            <li>Optionale Notiz</li>
+            <li>Zuordnung (Person 1, Person 2 oder Gemeinsam)</li>
+        </ul>
+        <div class="highlight-box">
+            <strong>Wichtig:</strong> Es werden keinerlei personenbezogene Daten (Name, Adresse, Bankdaten,
+            Passwörter o. ä.) erhoben oder gespeichert. Die App hat keinen eigenen Server und keinen Zugriff
+            auf Bankkonten oder Finanzsysteme.
+        </div>
+    </section>
+
+    <!-- 3. Google Drive -->
+    <section>
+        <h2>3. Google Drive – Datenspeicherung und Synchronisierung</h2>
+        <p>
+            Die Anwendung bietet optional die Möglichkeit, Buchungsdaten mit Google Drive zu synchronisieren.
+            Dabei gilt:
+        </p>
+        <ul>
+            <li>Der Nutzer authentifiziert sich mit seinem eigenen Google-Konto via OAuth 2.0</li>
+            <li>Die Anwendung schreibt ausschließlich in eine einzige Datei: <strong>transactions.json</strong></li>
+            <li>Die Datei liegt im Google Drive des Nutzers – vollständig unter dessen Kontrolle</li>
+            <li>Es werden keine Google-Nutzerdaten an Dritte weitergegeben</li>
+            <li>Der angeforderte Berechtigungsumfang ist auf <code>drive.file</code> beschränkt –
+                die App kann nur Dateien lesen und schreiben, die sie selbst erstellt hat</li>
+        </ul>
+        <div class="highlight-box">
+            Die Verwendung der Google Drive API durch diese Anwendung unterliegt den
+            <a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener">
+                Google API Services User Data Policy
+            </a>, einschließlich der Anforderungen zur eingeschränkten Nutzung.
+        </div>
+        <p>
+            Die Verbindung zu Google Drive ist optional. Alternativ können alle Daten ausschließlich
+            lokal im Browser gespeichert werden (localStorage), ohne jede externe Übertragung.
+        </p>
+    </section>
+
+    <!-- 4. Lokale Speicherung -->
+    <section>
+        <h2>4. Lokale Datenspeicherung (Browser)</h2>
+        <p>Die Anwendung nutzt folgende Browser-Speichermechanismen:</p>
+        <ul>
+            <li><strong>localStorage:</strong> Speichert die Google Client-ID, die Drive-File-ID sowie
+                ggf. Buchungsdaten im Offline-/Testmodus</li>
+            <li><strong>sessionStorage:</strong> Speichert das OAuth-Zugriffstoken temporär für die Dauer
+                der Browser-Sitzung</li>
+            <li><strong>Service Worker Cache:</strong> Speichert App-Dateien (HTML, CSS, JS) für
+                Offline-Nutzung als Progressive Web App</li>
+        </ul>
+        <p>
+            Alle lokal gespeicherten Daten verbleiben ausschließlich auf dem Gerät des Nutzers
+            und werden nicht an Server übertragen.
+        </p>
+    </section>
+
+    <!-- 5. Keine Weitergabe -->
+    <section>
+        <h2>5. Datenweitergabe an Dritte</h2>
+        <p>
+            Es erfolgt keinerlei Weitergabe von Nutzerdaten an Dritte. Die Anwendung besitzt
+            keinen eigenen Backend-Server und sammelt keinerlei Nutzungsstatistiken oder
+            Analysedaten.
+        </p>
+        <p>
+            Einzige externe Verbindung: die Google APIs (accounts.google.com, googleapis.com)
+            zur Authentifizierung und Dateisynchronisierung – ausschließlich auf Wunsch des Nutzers.
+        </p>
+    </section>
+
+    <!-- 6. Rechte -->
+    <section>
+        <h2>6. Rechte der Nutzer</h2>
+        <p>Nutzer haben jederzeit das Recht:</p>
+        <ul>
+            <li>Die Google Drive-Verbindung zu trennen (über die App-Einstellungen)</li>
+            <li>Den App-Zugriff auf Google Drive zu widerrufen unter
+                <a href="https://myaccount.google.com/permissions" target="_blank" rel="noopener">
+                    myaccount.google.com/permissions
+                </a>
+            </li>
+            <li>Alle lokal gespeicherten Daten durch Löschen des Browser-Speichers zu entfernen</li>
+            <li>Die transactions.json direkt in Google Drive einzusehen, zu bearbeiten oder zu löschen</li>
+        </ul>
+    </section>
+
+    <!-- 7. Sicherheit -->
+    <section>
+        <h2>7. Datensicherheit</h2>
+        <p>
+            Die Authentifizierung mit Google erfolgt ausschließlich über das sichere OAuth 2.0-Protokoll.
+            Zugangsdaten (Passwörter) werden zu keinem Zeitpunkt von der Anwendung gespeichert oder verarbeitet.
+        </p>
+        <p>
+            Die Übertragung aller Daten zwischen der Anwendung und Google Drive erfolgt verschlüsselt (HTTPS).
+        </p>
+    </section>
+
+    <!-- 8. Kontakt -->
+    <section>
+        <h2>8. Kontakt</h2>
+        <p>Bei Fragen zur Datenschutzerklärung oder zur Verarbeitung deiner Daten:</p>
+        <div class="contact-card">
+            <p><strong>Verantwortliche Person:</strong> Markus Haffner</p>
+            <p><strong>Website:</strong> <a href="https://haffnermarkus.github.io" target="_blank">haffnermarkus.github.io</a></p>
+            <p><strong>E-Mail:</strong> haffner.mar@gmail.com</p>
+        </div>
+    </section>
+
+</div>
+
+<footer>
+    <p>© 2026 Markus Haffner · Haushaltsbuch ist eine private, nicht-kommerzielle Anwendung.</p>
+</footer>
+
+</body>
+</html>
