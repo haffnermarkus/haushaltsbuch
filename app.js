@@ -466,6 +466,7 @@ function renderMonthsList() {
     // Group variable transactions for each month in the selected year
     for (let m = 1; m <= 12; m++) {
         const monthTrans = state.transactions.filter(t => {
+            if (t.isDeleted) return false;
             if (t.isFixedCost) return false;
             const d = new Date(t.date);
             return d.getFullYear() === year && (d.getMonth() + 1) === m;
@@ -503,6 +504,7 @@ function renderSummaryBox() {
     document.getElementById('selected-month-label').textContent = `${MONTH_NAMES[month - 1]} ${year}`;
     
     const monthTrans = state.transactions.filter(t => {
+        if (t.isDeleted) return false;
         if (t.isFixedCost) return false;
         const d = new Date(t.date);
         return d.getFullYear() === year && (d.getMonth() + 1) === month;
@@ -528,6 +530,7 @@ function renderTransactionsList() {
     const month = state.selectedMonth;
     
     const monthTrans = state.transactions.filter(t => {
+        if (t.isDeleted) return false;
         if (t.isFixedCost) return false;
         const d = new Date(t.date);
         return d.getFullYear() === year && (d.getMonth() + 1) === month;
@@ -681,6 +684,7 @@ function handleTransactionSave(e) {
             trans.assignedTo = assignedTo;
             trans.date = date;
             trans.notes = notes;
+            trans.updatedAt = new Date().toISOString();
         }
     } else {
         // Add new transaction
@@ -693,7 +697,9 @@ function handleTransactionSave(e) {
             assignedTo: assignedTo,
             date: date,
             notes: notes,
-            isFixedCost: false
+            isFixedCost: false,
+            isDeleted: false,
+            updatedAt: new Date().toISOString()
         };
         state.transactions.unshift(newTrans);
     }
@@ -728,7 +734,11 @@ function confirmDeleteTransaction(id) {
 function handleTransactionDeleteConfirmed() {
     const id = state.deletingTransactionId;
     if (id) {
-        state.transactions = state.transactions.filter(t => t.id !== id);
+        const trans = state.transactions.find(t => t.id === id);
+        if (trans) {
+            trans.isDeleted = true;
+            trans.updatedAt = new Date().toISOString();
+        }
         
         if (state.mode === 'google') {
             saveTransactionsToGoogle();
