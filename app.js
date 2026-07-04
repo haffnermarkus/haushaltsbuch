@@ -164,11 +164,36 @@ function initUI() {
     const btnSettingsDisconnect = document.getElementById('btn-settings-disconnect');
     if (btnSettingsDisconnect) btnSettingsDisconnect.addEventListener('click', handleDisconnect);
 
-    // Tab Navigation Bar
-    const navDash = document.getElementById('nav-dashboard');
-    if (navDash) navDash.addEventListener('click', () => switchTab('dashboard'));
-    const navBau = document.getElementById('nav-baukosten');
-    if (navBau) navBau.addEventListener('click', () => switchTab('baukosten'));
+    // Hamburger Menu triggers
+    const btnHamburger = document.getElementById('btn-hamburger');
+    if (btnHamburger) btnHamburger.addEventListener('click', () => showOverlay('sidebar-menu'));
+    const btnSidebarClose = document.getElementById('btn-sidebar-close');
+    if (btnSidebarClose) btnSidebarClose.addEventListener('click', () => hideOverlay('sidebar-menu'));
+    const sidebar = document.getElementById('sidebar-menu');
+    if (sidebar) {
+        sidebar.addEventListener('click', (e) => {
+            if (e.target === sidebar) {
+                hideOverlay('sidebar-menu');
+            }
+        });
+    }
+
+    // Sidebar Tab Navigation
+    const navDash = document.getElementById('sidebar-nav-dashboard');
+    if (navDash) navDash.addEventListener('click', () => {
+        switchTab('dashboard');
+        hideOverlay('sidebar-menu');
+    });
+    const navBau = document.getElementById('sidebar-nav-baukosten');
+    if (navBau) navBau.addEventListener('click', () => {
+        switchTab('baukosten');
+        hideOverlay('sidebar-menu');
+    });
+    const navSettings = document.getElementById('sidebar-nav-settings');
+    if (navSettings) navSettings.addEventListener('click', () => {
+        openSettingsDialog();
+        hideOverlay('sidebar-menu');
+    });
 
     // FAB Add transaction
     const btnAdd = document.getElementById('btn-add-transaction');
@@ -512,8 +537,11 @@ function handleTransactionDeleteConfirmed() {
 function switchTab(tabId) {
     state.activeTab = tabId;
     
-    document.getElementById('nav-dashboard').classList.toggle('active', tabId === 'dashboard');
-    document.getElementById('nav-baukosten').classList.toggle('active', tabId === 'baukosten');
+    const navDash = document.getElementById('sidebar-nav-dashboard');
+    const navBau = document.getElementById('sidebar-nav-baukosten');
+    
+    if (navDash) navDash.classList.toggle('active', tabId === 'dashboard');
+    if (navBau) navBau.classList.toggle('active', tabId === 'baukosten');
     
     document.getElementById('tab-dashboard').classList.toggle('active', tabId === 'dashboard');
     document.getElementById('tab-baukosten').classList.toggle('active', tabId === 'baukosten');
