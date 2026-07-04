@@ -335,6 +335,40 @@ async function findOrCreateTransactionsFile() {
     }
 }
 
+function mergeTransactions(local, remote) {
+    const map = new Map();
+
+    function mergeIntoMap(t) {
+        if (!t.id) return;
+        
+        if (map.has(t.id)) {
+            const existing = map.get(t.id);
+            const tTime = t.updatedAt ? new Date(t.updatedAt).getTime() : 0;
+            const existingTime = existing.updatedAt ? new Date(existing.updatedAt).getTime() : 0;
+
+            let useIncoming = false;
+            if (tTime > existingTime) {
+                useIncoming = true;
+            } else if (tTime === existingTime) {
+                if (t.isDeleted && !existing.isDeleted) {
+                    useIncoming = true;
+                }
+            }
+
+            if (useIncoming) {
+                map.set(t.id, t);
+            }
+        } else {
+            map.set(t.id, t);
+        }
+    }
+
+    local.forEach(t => mergeIntoMap(t));
+    remote.forEach(t => mergeIntoMap(t));
+
+    return Array.from(map.values());
+}
+
 async function loadTransactionsFromGoogle() {
     if (!state.fileId) return;
     
@@ -345,8 +379,7 @@ async function loadTransactionsFromGoogle() {
         if (!response) return;
         
         let data = await response.json();
-        // Set state
-        state.transactions = data || [];
+        state.transactions = mergeTransactions(state.transactions || [], data || []);
         updateSyncStatusIndicator('connected', 'Google Drive');
         updateDataViews();
     } catch (err) {
@@ -401,8 +434,21 @@ async function createTransactionsFileInGoogle() {
 async function saveTransactionsToGoogle() {
     if (!state.fileId) return;
     
-    updateSyncStatusIndicator('local', 'Speichere...');
+    updateSyncStatusIndicator('local', 'Synchronisiere...');
     try {
+        // 1. Download latest remote transactions first
+        const downloadUrl = `https://www.googleapis.com/drive/v3/files/${state.fileId}?alt=media`;
+        let downloadResponse = await apiCall(downloadUrl);
+        let remoteTransactions = [];
+        if (downloadResponse && downloadResponse.ok) {
+            remoteTransactions = await downloadResponse.json() || [];
+        }
+
+        // 2. Merge local state.transactions with remoteTransactions
+        const merged = mergeTransactions(state.transactions, remoteTransactions);
+        state.transactions = merged;
+
+        // 3. Upload merged transactions back to Google Drive
         const updateUrl = `https://www.googleapis.com/upload/drive/v3/files/${state.fileId}?uploadType=media`;
         let response = await apiCall(updateUrl, {
             method: 'PATCH',
@@ -420,7 +466,7 @@ async function saveTransactionsToGoogle() {
         }
     } catch (err) {
         updateSyncStatusIndicator('local', 'Fehler');
-        alert(`Drive Upload Error: ${err.message}`);
+        alert(`Drive Sync Error: ${err.message}`);
     }
 }
 
