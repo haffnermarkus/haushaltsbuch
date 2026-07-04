@@ -96,56 +96,93 @@
 
             <!-- Main Scrollable Area -->
             <main class="app-main">
-                
-                <!-- Year selector dropdown row -->
-                <div class="year-row">
-                    <label for="active-year">Aktives Jahr:</label>
-                    <select id="active-year" class="form-control select-year">
-                        <option value="2024">2024</option>
-                        <option value="2025">2025</option>
-                        <option value="2026" selected>2026</option>
-                        <option value="2027">2027</option>
-                        <option value="2028">2028</option>
-                    </select>
-                </div>
+                <!-- Dashboard Tab -->
+                <div id="tab-dashboard" class="tab-page active">
+                    <!-- Year selector dropdown row -->
+                    <div class="year-row">
+                        <label for="active-year">Aktives Jahr:</label>
+                        <select id="active-year" class="form-control select-year">
+                            <option value="2024">2024</option>
+                            <option value="2025">2025</option>
+                            <option value="2026" selected>2026</option>
+                            <option value="2027">2027</option>
+                            <option value="2028">2028</option>
+                        </select>
+                    </div>
 
-                <!-- Horizontal Months cards swiper -->
-                <div class="months-scroll-container">
-                    <div id="months-list" class="months-list">
+                    <!-- Horizontal Months cards swiper -->
+                    <div class="months-scroll-container">
+                        <div id="months-list" class="months-list">
+                            <!-- Filled by JS -->
+                        </div>
+                    </div>
+
+                    <!-- Monthly summary Card -->
+                    <div class="summary-card">
+                        <div class="summary-row header">
+                            <h3 id="selected-month-label">Ausgewählter Monat</h3>
+                        </div>
+                        <div class="summary-details">
+                            <div class="stat-box">
+                                <span class="label">Einnahmen</span>
+                                <span id="stat-income" class="value income">+0,00 €</span>
+                            </div>
+                            <div class="stat-box">
+                                <span class="label">Ausgaben</span>
+                                <span id="stat-expenses" class="value expense">-0,00 €</span>
+                            </div>
+                        </div>
+                        <div class="summary-surplus">
+                            <span class="label font-bold">Überschuss:</span>
+                            <span id="stat-surplus" class="value surplus-value">0,00 €</span>
+                        </div>
+                    </div>
+
+                    <!-- Transactions Title -->
+                    <div class="transactions-title-row">
+                        <h4>Manuelle Buchungen</h4>
+                        <span id="transaction-count" class="badge">0</span>
+                    </div>
+
+                    <!-- Vertical Transactions List -->
+                    <div id="transactions-list" class="transactions-list">
                         <!-- Filled by JS -->
                     </div>
                 </div>
 
-                <!-- Monthly summary Card -->
-                <div class="summary-card">
-                    <div class="summary-row header">
-                        <h3 id="selected-month-label">Ausgewählter Monat</h3>
-                    </div>
-                    <div class="summary-details">
-                        <div class="stat-box">
-                            <span class="label">Einnahmen</span>
-                            <span id="stat-income" class="value income">+0,00 €</span>
+                <!-- Baukosten Tab -->
+                <div id="tab-baukosten" class="tab-page">
+                    <!-- Summary Card for Baukosten -->
+                    <div class="summary-card baukosten-summary-card">
+                        <div class="summary-row header">
+                            <h3>Baukosten Übersicht</h3>
                         </div>
-                        <div class="stat-box">
-                            <span class="label">Ausgaben</span>
-                            <span id="stat-expenses" class="value expense">-0,00 €</span>
+                        <div class="summary-details">
+                            <div class="stat-box">
+                                <span class="label">Gesamt</span>
+                                <span id="baukosten-total" class="value">0,00 €</span>
+                            </div>
+                            <div class="stat-box">
+                                <span class="label">Bezahlt</span>
+                                <span id="baukosten-paid" class="value income">0,00 €</span>
+                            </div>
+                        </div>
+                        <div class="summary-surplus">
+                            <span class="label font-bold">Offen:</span>
+                            <span id="baukosten-unpaid" class="value expense">0,00 €</span>
+                        </div>
+                        
+                        <!-- Progress bar -->
+                        <div class="progress-container" style="margin-top: 16px; width: 100%; background: rgba(255,255,255,0.05); height: 8px; border-radius: 4px; overflow: hidden;">
+                            <div id="baukosten-progress-bar" style="background: var(--color-income); height: 100%; width: 0%; transition: width 0.3s;"></div>
                         </div>
                     </div>
-                    <div class="summary-surplus">
-                        <span class="label font-bold">Überschuss:</span>
-                        <span id="stat-surplus" class="value surplus-value">0,00 €</span>
+
+                    <!-- Baukosten List Container -->
+                    <div id="baukosten-list" class="baukosten-list">
+                        <!-- Filled by JS -->
+                        <div class="loading-state">Lade Baukosten...</div>
                     </div>
-                </div>
-
-                <!-- Transactions Title -->
-                <div class="transactions-title-row">
-                    <h4>Manuelle Buchungen</h4>
-                    <span id="transaction-count" class="badge">0</span>
-                </div>
-
-                <!-- Vertical Transactions List -->
-                <div id="transactions-list" class="transactions-list">
-                    <!-- Filled by JS -->
                 </div>
             </main>
 
@@ -156,6 +193,26 @@
                     <line x1="5" y1="12" x2="19" y2="12"></line>
                 </svg>
             </button>
+
+            <!-- Bottom Navigation Bar -->
+            <nav class="bottom-nav">
+                <button id="nav-dashboard" class="nav-item active" title="Buchungen">
+                    <svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                        <line x1="16" y1="2" x2="16" y2="6"></line>
+                        <line x1="8" y1="2" x2="8" y2="6"></line>
+                        <line x1="3" y1="10" x2="21" y2="10"></line>
+                    </svg>
+                    <span>Buchungen</span>
+                </button>
+                <button id="nav-baukosten" class="nav-item" title="Baukosten">
+                    <svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+                        <polyline points="9 22 9 12 15 12 15 22"></polyline>
+                    </svg>
+                    <span>Baukosten</span>
+                </button>
+            </nav>
         </div>
         
     </div>

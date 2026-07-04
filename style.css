@@ -844,3 +844,206 @@ body, html {
     width: auto;
     padding: 10px 16px;
 }
+
+/* ==================== BOTTOM NAVIGATION & TABS ==================== */
+.bottom-nav {
+    display: flex;
+    background-color: rgba(18, 24, 40, 0.95);
+    border-top: 1px solid var(--border-color);
+    height: 64px;
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    z-index: 100;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.nav-item {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: none;
+    color: var(--text-tertiary);
+    gap: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: color var(--transition-speed), transform var(--transition-speed);
+}
+
+.nav-item.active {
+    color: var(--accent);
+}
+
+.nav-item svg {
+    transition: transform var(--transition-speed) ease-out;
+}
+
+.nav-item.active svg {
+    transform: translateY(-2px);
+    stroke: var(--accent);
+}
+
+.tab-page {
+    display: none;
+    flex-direction: column;
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    padding-bottom: 90px; /* Space for Bottom Nav and FAB */
+}
+
+.tab-page.active {
+    display: flex;
+}
+
+/* ==================== BAUKOSTEN PAGE STYLES ==================== */
+.baukosten-summary-card {
+    background: linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(99, 102, 241, 0.05));
+    border: 1px solid rgba(99, 102, 241, 0.2);
+}
+
+.baukosten-category-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 16px;
+    margin-bottom: 16px;
+    overflow: hidden;
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    transition: transform 0.2s;
+}
+
+.baukosten-category-header {
+    padding: 16px;
+    background: rgba(255, 255, 255, 0.02);
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+}
+
+.baukosten-category-header h4 {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.baukosten-category-header-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.baukosten-category-header-amounts {
+    text-align: right;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.baukosten-category-header-amounts .total-amount {
+    font-size: 14px;
+    font-weight: 700;
+}
+
+.baukosten-category-header-amounts .paid-ratio {
+    font-size: 11px;
+    color: var(--text-secondary);
+}
+
+.baukosten-items-list {
+    padding: 8px 0;
+}
+
+.baukosten-item-row {
+    padding: 12px 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.baukosten-item-row:last-child {
+    border-bottom: none;
+}
+
+.baukosten-item-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.baukosten-item-status-icon {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.baukosten-item-status-icon.paid {
+    background-color: var(--color-income-bg);
+    color: var(--color-income);
+}
+
+.baukosten-item-status-icon.unpaid {
+    background-color: rgba(255, 255, 255, 0.04);
+    color: var(--text-tertiary);
+}
+
+.baukosten-item-details {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.baukosten-item-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.baukosten-item-meta {
+    font-size: 11px;
+    color: var(--text-secondary);
+}
+
+.baukosten-item-right {
+    text-align: right;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+}
+
+.baukosten-item-amount {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.baukosten-item-paid-badge {
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-weight: 600;
+}
+
+.baukosten-item-paid-badge.paid {
+    background-color: var(--color-income-bg);
+    color: var(--color-income);
+}
+
+.baukosten-item-paid-badge.unpaid {
+    background-color: var(--color-expense-bg);
+    color: var(--color-expense);
+}

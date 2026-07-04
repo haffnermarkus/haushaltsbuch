@@ -32,7 +32,10 @@ let state = {
     selectedMonth: new Date().getMonth() + 1, // 1-indexed (1-12)
     transactions: [],
     editingTransactionId: null,
-    deletingTransactionId: null
+    deletingTransactionId: null,
+    activeTab: 'dashboard',
+    buildingCosts: [],
+    buildingCostsFileId: localStorage.getItem('gdrive_building_costs_file_id') || null
 };
 
 // Default Google Config parameters (Placeholder, configurable in UI)
@@ -152,6 +155,10 @@ function initUI() {
     document.getElementById('btn-settings-cancel').addEventListener('click', () => hideOverlay('settings-dialog'));
     document.getElementById('btn-settings-save').addEventListener('click', saveSettings);
     document.getElementById('btn-settings-disconnect').addEventListener('click', handleDisconnect);
+
+    // Tab Navigation Bar
+    document.getElementById('nav-dashboard').addEventListener('click', () => switchTab('dashboard'));
+    document.getElementById('nav-baukosten').addEventListener('click', () => switchTab('baukosten'));
 
     // FAB Add transaction
     document.getElementById('btn-add-transaction').addEventListener('click', () => openTransactionDialog());
@@ -291,6 +298,8 @@ function onAuthSuccess(accessToken, existingFileId) {
     showScreen('main-screen');
     updateSyncStatusIndicator('connected', 'Google Drive');
 
+    state.buildingCostsFileId = localStorage.getItem('gdrive_building_costs_file_id');
+
     if (existingFileId) {
         // Bereits bekannte File-ID → direkt laden, kein neues Suchen nötig
         state.fileId = existingFileId;
@@ -298,6 +307,8 @@ function onAuthSuccess(accessToken, existingFileId) {
     } else {
         findOrCreateTransactionsFile();
     }
+
+    findBuildingCostsFile();
 }
 
 // REST helper to contact Google API
@@ -850,5 +861,205 @@ function triggerPwaInstall() {
             console.log('[PWA] Nutzer hat gewählt:', choice.outcome);
             deferredInstallPrompt = null;
         });
+    }
+}
+
+// ==================== TAB SWITCHING & BAUKOSTEN ====================
+function switchTab(tabId) {
+    state.activeTab = tabId;
+    
+    // Buttons aktualisieren
+    document.getElementById('nav-dashboard').classList.toggle('active', tabId === 'dashboard');
+    document.getElementById('nav-baukosten').classList.toggle('active', tabId === 'baukosten');
+    
+    // Tab-Inhalte aktualisieren
+    document.getElementById('tab-dashboard').classList.toggle('active', tabId === 'dashboard');
+    document.getElementById('tab-baukosten').classList.toggle('active', tabId === 'baukosten');
+    
+    // FAB bei Baukosten ausblenden
+    document.getElementById('btn-add-transaction').style.display = tabId === 'dashboard' ? 'flex' : 'none';
+    
+    if (tabId === 'baukosten') {
+        loadBuildingCostsFromGoogle();
+    }
+}
+
+async function findBuildingCostsFile() {
+    if (!state.accessToken) return;
+    try {
+        let searchUrl = `https://www.googleapis.com/drive/v3/files?q=name='building_costs.json'+and+trashed=false&fields=files(id,name)`;
+        let response = await apiCall(searchUrl);
+        if (response && response.ok) {
+            let data = await response.json();
+            if (data.files && data.files.length > 0) {
+                state.buildingCostsFileId = data.files[0].id;
+                localStorage.setItem('gdrive_building_costs_file_id', state.buildingCostsFileId);
+            }
+        }
+    } catch (err) {
+        console.warn('[Drive] Fehler beim Suchen der Baukosten-Datei:', err);
+    }
+}
+
+async function loadBuildingCostsFromGoogle() {
+    const listContainer = document.getElementById('baukosten-list');
+    
+    if (state.mode !== 'google') {
+        listContainer.innerHTML = `<div class="info-box">Baukosten können nur im Google Drive-Modus angezeigt werden.</div>`;
+        return;
+    }
+    
+    if (!state.buildingCostsFileId) {
+        await findBuildingCostsFile();
+        if (!state.buildingCostsFileId) {
+            listContainer.innerHTML = `<div class="info-box">Keine Baukosten-Datei 'building_costs.json' auf Ihrem Google Drive gefunden.<br><br>Bitte führen Sie in der PC-App eine <strong>Synchronisierung</strong> durch, um die Baukosten hochzuladen.</div>`;
+            return;
+        }
+    }
+    
+    listContainer.innerHTML = `<div class="loading-state">Lade Baukosten...</div>`;
+    
+    try {
+        const downloadUrl = `https://www.googleapis.com/drive/v3/files/${state.buildingCostsFileId}?alt=media`;
+        let response = await apiCall(downloadUrl);
+        if (!response) return;
+        
+        if (!response.ok) {
+            let errMsg = `HTTP ${response.status}`;
+            try {
+                const errData = await response.json();
+                if (errData.error && errData.error.message) {
+                    errMsg = errData.error.message;
+                }
+            } catch (e) {}
+            throw new Error(errMsg);
+        }
+        
+        let data = await response.json();
+        state.buildingCosts = data || [];
+        renderBuildingCosts();
+    } catch (err) {
+        listContainer.innerHTML = `<div class="info-box" style="color:var(--color-expense)">Fehler beim Laden der Baukosten:<br>${err.message}</div>`;
+    }
+}
+
+function formatCurrency(val) {
+    return `${val.toFixed(2).replace('.', ',')} €`;
+}
+
+function renderBuildingCosts() {
+    const container = document.getElementById('baukosten-list');
+    container.innerHTML = '';
+    
+    if (!state.buildingCosts || state.buildingCosts.length === 0) {
+        container.innerHTML = `<div class="info-box">Keine Baukosten-Einträge vorhanden.</div>`;
+        return;
+    }
+    
+    // 1. Berechne Summen
+    let totalAmount = 0;
+    let paidAmount = 0;
+    
+    state.buildingCosts.forEach(item => {
+        const amount = item.amount || item.Amount || 0;
+        const isPaid = item.isPaid !== undefined ? item.isPaid : (item.IsPaid !== undefined ? item.IsPaid : false);
+        
+        totalAmount += amount;
+        if (isPaid) {
+            paidAmount += amount;
+        }
+    });
+    
+    const unpaidAmount = totalAmount - paidAmount;
+    const progressPercent = totalAmount > 0 ? (paidAmount / totalAmount) * 100 : 0;
+    
+    document.getElementById('baukosten-total').textContent = formatCurrency(totalAmount);
+    document.getElementById('baukosten-paid').textContent = `+${formatCurrency(paidAmount)}`;
+    document.getElementById('baukosten-unpaid').textContent = `-${formatCurrency(unpaidAmount)}`;
+    document.getElementById('baukosten-progress-bar').style.width = `${progressPercent}%`;
+    
+    // 2. Gruppiere nach Kategorie
+    const groups = {};
+    state.buildingCosts.forEach(item => {
+        const cat = item.category || item.Category || 'Sonstiges';
+        if (!groups[cat]) groups[cat] = [];
+        groups[cat].push(item);
+    });
+    
+    // 3. Rendere Kategorien
+    for (const category in groups) {
+        const items = groups[category];
+        
+        let catTotal = 0;
+        let catPaid = 0;
+        items.forEach(item => {
+            const amt = item.amount || item.Amount || 0;
+            const paid = item.isPaid !== undefined ? item.isPaid : (item.IsPaid !== undefined ? item.IsPaid : false);
+            catTotal += amt;
+            if (paid) catPaid += amt;
+        });
+        
+        const card = document.createElement('div');
+        card.className = 'baukosten-category-card';
+        
+        let itemsHtml = '';
+        items.forEach(item => {
+            const name = item.name || item.Name || '';
+            const amt = item.amount || item.Amount || 0;
+            const paid = item.isPaid !== undefined ? item.isPaid : (item.IsPaid !== undefined ? item.IsPaid : false);
+            const paidBy = item.paidBy || item.PaidBy || '';
+            const paymentDate = item.paymentDate || item.PaymentDate || null;
+            
+            const statusClass = paid ? 'paid' : 'unpaid';
+            const statusIcon = paid ? '✓' : '•';
+            let paidText = 'Offen';
+            if (paid) {
+                paidText = 'Bezahlt';
+                if (paymentDate) {
+                    const d = new Date(paymentDate);
+                    if (!isNaN(d.getTime())) {
+                        paidText += ` am ${d.toLocaleDateString('de-DE')}`;
+                    }
+                }
+                if (paidBy) {
+                    paidText += ` von ${paidBy}`;
+                }
+            }
+            
+            itemsHtml += `
+                <div class="baukosten-item-row">
+                    <div class="baukosten-item-left">
+                        <div class="baukosten-item-status-icon ${statusClass}">
+                            ${statusIcon}
+                        </div>
+                        <div class="baukosten-item-details">
+                            <span class="baukosten-item-name">${name}</span>
+                            <span class="baukosten-item-meta">${paidText}</span>
+                        </div>
+                    </div>
+                    <div class="baukosten-item-right">
+                        <span class="baukosten-item-amount">${formatCurrency(amt)}</span>
+                        <span class="baukosten-item-paid-badge ${statusClass}">${paid ? 'Bezahlt' : 'Offen'}</span>
+                    </div>
+                </div>
+            `;
+        });
+        
+        card.innerHTML = `
+            <div class="baukosten-category-header">
+                <h4>${category}</h4>
+                <div class="baukosten-category-header-right">
+                    <div class="baukosten-category-header-amounts">
+                        <span class="total-amount">${formatCurrency(catTotal)}</span>
+                        <span class="paid-ratio">${formatCurrency(catPaid)} bezahlt</span>
+                    </div>
+                </div>
+            </div>
+            <div class="baukosten-items-list">
+                ${itemsHtml}
+            </div>
+        `;
+        
+        container.appendChild(card);
     }
 }
