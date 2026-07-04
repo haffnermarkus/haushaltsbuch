@@ -1,3 +1,48 @@
+import { 
+    state, 
+    MONTH_NAMES, 
+    SEED_DATA, 
+    escapeHtml, 
+    formatCurrency, 
+    generateUUID, 
+    loadTransactionsFromLocal, 
+    saveTransactionsToLocal 
+} from './state.js';
+
+import { 
+    tryAutoReconnect, 
+    handleGoogleConnect, 
+    onAuthSuccess 
+} from './auth.js';
+
+import { 
+    apiCall, 
+    searchFile, 
+    downloadFileContent, 
+    uploadFileContent, 
+    createFileInGoogle 
+} from './api.js';
+
+import { 
+    updateDataViews, 
+    renderMonthsList, 
+    renderTransactionsList, 
+    renderSummaryBox, 
+    renderBuildingCosts, 
+    populateCategoryDropdown 
+} from './ui.js';
+
+export { 
+    state, 
+    updateDataViews, 
+    openTransactionDialog, 
+    confirmDeleteTransaction, 
+    loadTransactionsFromGoogle, 
+    showScreen, 
+    updateSyncStatusIndicator, 
+    handleDisconnect 
+};
+
 // ==================== PWA: SERVICE WORKER REGISTRIERUNG ====================
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
@@ -7,12 +52,11 @@ if ('serviceWorker' in navigator) {
     });
 }
 
-// ==================== PWA: INSTALL PROMPT (Android Chrome) ====================
+// ==================== PWA: INSTALL PROMPT ====================
 let deferredInstallPrompt = null;
 window.addEventListener('beforeinstallprompt', (e) => {
     e.preventDefault();
     deferredInstallPrompt = e;
-    // Optional: Zeige einen "App installieren"-Banner in der UI
     console.log('[PWA] App kann installiert werden.');
 });
 
@@ -21,63 +65,16 @@ window.addEventListener('appinstalled', () => {
     deferredInstallPrompt = null;
 });
 
-// State Management
-let state = {
-    mode: 'local', // 'local' or 'google'
-    accessToken: null,
-    fileId: null,
-    clientId: localStorage.getItem('gdrive_client_id') || '',
-    apiKey: localStorage.getItem('gdrive_api_key') || '',
-    selectedYear: new Date().getFullYear(),
-    selectedMonth: new Date().getMonth() + 1, // 1-indexed (1-12)
-    transactions: [],
-    editingTransactionId: null,
-    deletingTransactionId: null,
-    activeTab: 'dashboard',
-    buildingCosts: [],
-    buildingCostsFileId: localStorage.getItem('gdrive_building_costs_file_id') || null
-};
-
-// Default Google Config parameters (Placeholder, configurable in UI)
+// Default Google Config parameters
 const DEFAULT_CLIENT_ID = "283087066617-jcnplsfjoit6asktt3v56ihkeltbppas.apps.googleusercontent.com";
 const DEFAULT_API_KEY = "";
-
-// Month names in German
-const MONTH_NAMES = [
-    "Januar", "Februar", "März", "April", "Mai", "Juni", 
-    "Juli", "August", "September", "Oktober", "November", "Dezember"
-];
-
-// Category Icons mapping (German to Emoji/Glyph representation)
-const CATEGORY_ICONS = {
-    "Gehalt": "💼",
-    "Lebensmittel": "🛒",
-    "Wohnen": "🏠",
-    "Freizeit": "🎮",
-    "Transport": "🚗",
-    "Versicherungen": "🛡️",
-    "Kredite": "🏦",
-    "Sonstiges": "📦"
-};
-
-// Seed Mock Data (Same as C# ViewModel seed data)
-const SEED_DATA = [
-    { id: "s1", title: "Monatsgehalt", amount: 2800.00, isIncome: true, category: "Gehalt", date: new Date(new Date().setDate(new Date().getDate() - 10)).toISOString(), notes: "Reguläres Gehalt", assignedTo: "Partner 1", isFixedCost: false },
-    { id: "s2", title: "Supermarkteinkauf", amount: 78.45, isIncome: false, category: "Lebensmittel", date: new Date(new Date().setDate(new Date().getDate() - 5)).toISOString(), notes: "Wocheneinkauf", assignedTo: "Gemeinsam", isFixedCost: false },
-    { id: "s3", title: "Tanken", amount: 65.00, isIncome: false, category: "Transport", date: new Date(new Date().setDate(new Date().getDate() - 4)).toISOString(), notes: "Benzin", assignedTo: "Partner 2", isFixedCost: false },
-    { id: "s4", title: "Kinotickets", amount: 24.50, isIncome: false, category: "Freizeit", date: new Date(new Date().setDate(new Date().getDate() - 2)).toISOString(), notes: "Popcorn & Filme", assignedTo: "Gemeinsam", isFixedCost: false },
-    { id: "s5", title: "Verkauf Kleinanzeigen", amount: 50.00, isIncome: true, category: "Sonstiges", date: new Date(new Date().setDate(new Date().getDate() - 1)).toISOString(), notes: "Alte Lampe verkauft", assignedTo: "Partner 1", isFixedCost: false }
-];
-
-// Initialize OAuth2 client client-side token helper
-let tokenClient = null;
 
 // ==================== APP INITIALIZATION ====================
 document.addEventListener("DOMContentLoaded", () => {
     initUI();
     loadConfig();
     
-    // Bereits eine aktive Session in diesem Tab? → direkt laden
+    // Bereits eine aktive Session in diesem Tab? -> direkt laden
     const savedToken = sessionStorage.getItem('gdrive_access_token');
     const savedFileId = localStorage.getItem('gdrive_file_id');
     if (savedToken && savedFileId) {
@@ -88,8 +85,6 @@ document.addEventListener("DOMContentLoaded", () => {
         updateSyncStatusIndicator('connected', 'Google Drive');
         loadTransactionsFromGoogle();
     } else if (savedFileId) {
-        // Kein Session-Token, aber früher schon verbunden gewesen →
-        // Warten bis GIS-Bibliothek geladen ist, dann stilles Re-Auth versuchen
         showScreen('login-screen');
         waitForGisAndAutoReconnect();
     } else {
@@ -97,9 +92,8 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 });
 
-// Wartet bis die GIS-Bibliothek verfügbar ist, dann stilles Re-Auth
 function waitForGisAndAutoReconnect() {
-    const maxWait = 5000; // max 5 Sekunden warten
+    const maxWait = 5000;
     const start = Date.now();
     const check = setInterval(() => {
         if (typeof google !== 'undefined' && google.accounts) {
@@ -112,270 +106,169 @@ function waitForGisAndAutoReconnect() {
     }, 100);
 }
 
-
 function loadConfig() {
     state.clientId = localStorage.getItem('gdrive_client_id') || DEFAULT_CLIENT_ID;
     state.apiKey = localStorage.getItem('gdrive_api_key') || DEFAULT_API_KEY;
     
-    document.getElementById('setting-client-id').value = state.clientId;
-    document.getElementById('setting-api-key').value = state.apiKey;
+    const clientInput = document.getElementById('setting-client-id');
+    if (clientInput) clientInput.value = state.clientId;
+    const apiInput = document.getElementById('setting-api-key');
+    if (apiInput) apiInput.value = state.apiKey;
 }
 
-function openSettingsDialog() {
-    document.getElementById('setting-file-id').value = state.fileId || '';
+export function openSettingsDialog() {
+    const fileIdInput = document.getElementById('setting-file-id');
+    if (fileIdInput) fileIdInput.value = state.fileId || '';
     showOverlay('settings-dialog');
 }
 
 function initUI() {
     // Year dropdown select handler
     const selectYear = document.getElementById('active-year');
-    selectYear.value = state.selectedYear;
-    selectYear.addEventListener('change', (e) => {
-        state.selectedYear = parseInt(e.target.value);
-        updateDataViews();
-    });
+    if (selectYear) {
+        selectYear.value = state.selectedYear;
+        selectYear.addEventListener('change', (e) => {
+            state.selectedYear = parseInt(e.target.value);
+            updateDataViews();
+        });
+    }
 
     // Connect Google button
-    document.getElementById('btn-connect-google').addEventListener('click', handleGoogleConnect);
+    const btnConnect = document.getElementById('btn-connect-google');
+    if (btnConnect) btnConnect.addEventListener('click', handleGoogleConnect);
     
     // Local Mode button
-    document.getElementById('btn-local-mode').addEventListener('click', handleLocalModeStart);
+    const btnLocal = document.getElementById('btn-local-mode');
+    if (btnLocal) btnLocal.addEventListener('click', handleLocalModeStart);
     
     // Refresh button
-    document.getElementById('btn-refresh').addEventListener('click', () => {
-        if (state.mode === 'google') {
-            loadTransactionsFromGoogle();
-        } else {
-            loadTransactionsFromLocal();
-        }
-    });
+    const btnRefresh = document.getElementById('btn-refresh');
+    if (btnRefresh) {
+        btnRefresh.addEventListener('click', () => {
+            if (state.mode === 'google') {
+                loadTransactionsFromGoogle();
+            } else {
+                loadTransactionsFromLocal();
+                updateDataViews();
+            }
+        });
+    }
 
     // Settings modal button triggers
-    document.getElementById('btn-settings').addEventListener('click', () => openSettingsDialog());
-    document.getElementById('btn-settings-cancel').addEventListener('click', () => hideOverlay('settings-dialog'));
-    document.getElementById('btn-settings-save').addEventListener('click', saveSettings);
-    document.getElementById('btn-settings-disconnect').addEventListener('click', handleDisconnect);
+    const btnSettings = document.getElementById('btn-settings');
+    if (btnSettings) btnSettings.addEventListener('click', () => openSettingsDialog());
+    const btnSettingsCancel = document.getElementById('btn-settings-cancel');
+    if (btnSettingsCancel) btnSettingsCancel.addEventListener('click', () => hideOverlay('settings-dialog'));
+    const btnSettingsSave = document.getElementById('btn-settings-save');
+    if (btnSettingsSave) btnSettingsSave.addEventListener('click', saveSettings);
+    const btnSettingsDisconnect = document.getElementById('btn-settings-disconnect');
+    if (btnSettingsDisconnect) btnSettingsDisconnect.addEventListener('click', handleDisconnect);
 
     // Tab Navigation Bar
-    document.getElementById('nav-dashboard').addEventListener('click', () => switchTab('dashboard'));
-    document.getElementById('nav-baukosten').addEventListener('click', () => switchTab('baukosten'));
+    const navDash = document.getElementById('nav-dashboard');
+    if (navDash) navDash.addEventListener('click', () => switchTab('dashboard'));
+    const navBau = document.getElementById('nav-baukosten');
+    if (navBau) navBau.addEventListener('click', () => switchTab('baukosten'));
 
     // FAB Add transaction
-    document.getElementById('btn-add-transaction').addEventListener('click', () => openTransactionDialog());
+    const btnAdd = document.getElementById('btn-add-transaction');
+    if (btnAdd) btnAdd.addEventListener('click', () => openTransactionDialog());
     
     // Dialog Buttons
-    document.getElementById('dialog-btn-close').addEventListener('click', closeTransactionDialog);
-    document.getElementById('btn-dialog-cancel').addEventListener('click', closeTransactionDialog);
-    document.getElementById('transaction-form').addEventListener('submit', handleTransactionSave);
+    const btnClose = document.getElementById('dialog-btn-close');
+    if (btnClose) btnClose.addEventListener('click', closeTransactionDialog);
+    const btnCancel = document.getElementById('btn-dialog-cancel');
+    if (btnCancel) btnCancel.addEventListener('click', closeTransactionDialog);
+    const form = document.getElementById('transaction-form');
+    if (form) form.addEventListener('submit', handleTransactionSave);
 
     // Confirm dialog triggers
-    document.getElementById('btn-confirm-cancel').addEventListener('click', () => hideOverlay('confirm-dialog'));
-    document.getElementById('btn-confirm-ok').addEventListener('click', handleTransactionDeleteConfirmed);
+    const btnConfirmCancel = document.getElementById('btn-confirm-cancel');
+    if (btnConfirmCancel) btnConfirmCancel.addEventListener('click', () => hideOverlay('confirm-dialog'));
+    const btnConfirmOk = document.getElementById('btn-confirm-ok');
+    if (btnConfirmOk) btnConfirmOk.addEventListener('click', handleTransactionDeleteConfirmed);
 
     // Setup hint
-    document.getElementById('link-setup-instructions').addEventListener('click', (e) => {
-        e.preventDefault();
-        openSettingsDialog();
-    });
+    const linkSetup = document.getElementById('link-setup-instructions');
+    if (linkSetup) {
+        linkSetup.addEventListener('click', (e) => {
+            e.preventDefault();
+            openSettingsDialog();
+        });
+    }
 
     // Set today's date default in Form input
-    document.getElementById('field-date').value = new Date().toISOString().substring(0, 10);
+    const fieldDate = document.getElementById('field-date');
+    if (fieldDate) fieldDate.value = new Date().toISOString().substring(0, 10);
+    
+    // Populate dropdown dynamically in case it's ready
+    populateCategoryDropdown();
 }
 
 // ==================== NAVIGATION SCREENS ====================
 function showScreen(screenId) {
     document.querySelectorAll('.screen').forEach(scr => scr.classList.remove('active'));
-    document.getElementById(screenId).classList.add('active');
+    const screen = document.getElementById(screenId);
+    if (screen) screen.classList.add('active');
 }
 
 function showOverlay(overlayId) {
     const overlay = document.getElementById(overlayId);
-    overlay.classList.add('active');
+    if (overlay) overlay.classList.add('active');
 }
 
 function hideOverlay(overlayId) {
     const overlay = document.getElementById(overlayId);
-    overlay.classList.remove('active');
+    if (overlay) overlay.classList.remove('active');
 }
 
 function updateSyncStatusIndicator(type, label) {
     const indicator = document.getElementById('sync-status');
-    indicator.className = `status-indicator ${type}`;
-    indicator.textContent = label;
+    if (indicator) {
+        indicator.className = `status-indicator ${type}`;
+        indicator.textContent = label;
+    }
 }
 
-// ==================== TEST MODE (LOCAL STORAGE) ====================
+// ==================== LOCAL STORAGE HANDLERS ====================
 function handleLocalModeStart() {
     state.mode = 'local';
     showScreen('main-screen');
     updateSyncStatusIndicator('local', 'Lokal');
     loadTransactionsFromLocal();
-}
-
-function loadTransactionsFromLocal() {
-    let saved = localStorage.getItem('local_transactions');
-    if (saved) {
-        state.transactions = JSON.parse(saved);
-    } else {
-        // Seed database
-        state.transactions = SEED_DATA;
-        localStorage.setItem('local_transactions', JSON.stringify(SEED_DATA));
-    }
     updateDataViews();
 }
 
-function saveTransactionsToLocal() {
-    localStorage.setItem('local_transactions', JSON.stringify(state.transactions));
-    updateDataViews();
-}
-
-// ==================== GOOGLE DRIVE CONNECTION ====================
-
-// Erstellt den GIS Token Client und gibt ihn zurück
-function createTokenClient(callback) {
-    return google.accounts.oauth2.initTokenClient({
-        client_id: state.clientId,
-        scope: 'https://www.googleapis.com/auth/drive',
-        callback: callback,
-    });
-}
-
-// Wird beim App-Start aufgerufen – versucht lautlos eine neue Session zu holen
-// ohne dass der Nutzer etwas tun muss (kein Popup wenn bereits eingeloggt)
-function tryAutoReconnect() {
-    if (!state.clientId) return;
-    const savedFileId = localStorage.getItem('gdrive_file_id');
-    if (!savedFileId) return; // Noch nie verbunden → kein Auto-Reconnect
-
-    try {
-        const client = createTokenClient((response) => {
-            if (response.error) {
-                // Stilles Re-Auth hat nicht geklappt → kein Problem, Nutzer kann manuell verbinden
-                console.log('[Auth] Stilles Re-Auth fehlgeschlagen:', response.error);
-                return;
-            }
-            // Erfolg: Token ohne Nutzerinteraktion erneuert
-            onAuthSuccess(response.access_token, savedFileId);
-        });
-        // prompt='none' → kein Popup, kein Account-Wechsel – nur stilles Token-Refresh
-        client.requestAccessToken({ prompt: 'none' });
-    } catch (e) {
-        console.warn('[Auth] Auto-Reconnect nicht möglich:', e.message);
-    }
-}
-
-// Wird beim Klick auf "Mit Google Drive verbinden" aufgerufen
-function handleGoogleConnect() {
-    if (!state.clientId) {
-        alert("Bitte konfigurieren Sie zuerst Ihre Google Client ID in den Einstellungen!");
-        openSettingsDialog();
-        return;
-    }
-
-    try {
-        tokenClient = createTokenClient((response) => {
-            if (response.error !== undefined) {
-                alert(`Fehler bei Authentifizierung: ${response.error}`);
-                return;
-            }
-            onAuthSuccess(response.access_token, localStorage.getItem('gdrive_file_id'));
-        });
-
-        // 'select_account' zeigt die Account-Auswahl (kein erzwungenes Consent mehr!)
-        // Nur beim ersten Mal fragt Google nach Zustimmung – danach direkt weiter.
-        tokenClient.requestAccessToken({ prompt: 'select_account' });
-    } catch (e) {
-        alert(`Google client error: ${e.message}`);
-    }
-}
-
-// Gemeinsame Logik nach erfolgreichem Token-Erhalt
-function onAuthSuccess(accessToken, existingFileId) {
-    state.mode = 'google';
-    state.accessToken = accessToken;
-    sessionStorage.setItem('gdrive_access_token', accessToken);
-
-    showScreen('main-screen');
-    updateSyncStatusIndicator('connected', 'Google Drive');
-
-    state.buildingCostsFileId = localStorage.getItem('gdrive_building_costs_file_id');
-
-    if (existingFileId) {
-        // Bereits bekannte File-ID → direkt laden, kein neues Suchen nötig
-        state.fileId = existingFileId;
-        loadTransactionsFromGoogle();
-    } else {
-        findOrCreateTransactionsFile();
-    }
-
-    findBuildingCostsFile();
-}
-
-// REST helper to contact Google API
-async function apiCall(url, options = {}) {
-    if (!options.headers) {
-        options.headers = {};
-    }
-    options.headers['Authorization'] = `Bearer ${state.accessToken}`;
-    options.headers['Accept'] = 'application/json';
-    
-    let response = await fetch(url, options);
-    if (response.status === 401) {
-        // Auth expired, redirect to log in again
-        alert("Sitzung abgelaufen. Bitte verbinden Sie sich erneut mit Google Drive.");
-        handleDisconnect();
-        return null;
-    }
-    return response;
-}
-
-async function findOrCreateTransactionsFile() {
-    try {
-        // Search for transactions.json
-        const searchUrl = `https://www.googleapis.com/drive/v3/files?q=name='transactions.json'+and+trashed=false${state.apiKey ? `&key=${state.apiKey}` : ''}`;
-        let response = await apiCall(searchUrl);
-        if (!response) return;
-        
-        let data = await response.json();
-        if (data.files && data.files.length > 0) {
-            // File exists
-            state.fileId = data.files[0].id;
-            localStorage.setItem('gdrive_file_id', state.fileId);
-            loadTransactionsFromGoogle();
-        } else {
-            // File does not exist, create it with seed data
-            createTransactionsFileInGoogle();
-        }
-    } catch (err) {
-        alert(`Drive Search Error: ${err.message}`);
-    }
-}
-
+// ==================== GOOGLE DRIVE OPERATIONS ====================
 function mergeTransactions(local, remote) {
     const map = new Map();
 
     function mergeIntoMap(t) {
-        if (!t || !t.id) return;
+        if (!t) return;
+        const id = t.id || t.Id;
+        if (!id) return;
         
-        if (map.has(t.id)) {
-            const existing = map.get(t.id);
-            const tTime = t.updatedAt ? new Date(t.updatedAt).getTime() : 0;
-            const existingTime = existing.updatedAt ? new Date(existing.updatedAt).getTime() : 0;
+        if (map.has(id)) {
+            const existing = map.get(id);
+            const tTime = new Date(t.updatedAt || t.UpdatedAt || 0).getTime();
+            const existingTime = new Date(existing.updatedAt || existing.UpdatedAt || 0).getTime();
 
             let useIncoming = false;
             if (tTime > existingTime) {
                 useIncoming = true;
             } else if (tTime === existingTime) {
-                if (t.isDeleted && !existing.isDeleted) {
+                const incomingDel = t.isDeleted || t.IsDeleted || false;
+                const existingDel = existing.isDeleted || existing.IsDeleted || false;
+                if (incomingDel && !existingDel) {
                     useIncoming = true;
                 }
             }
 
             if (useIncoming) {
-                map.set(t.id, t);
+                map.set(id, t);
             }
         } else {
-            map.set(t.id, t);
+            map.set(id, t);
         }
     }
 
@@ -390,22 +283,7 @@ async function loadTransactionsFromGoogle() {
     
     updateSyncStatusIndicator('local', 'Lade...');
     try {
-        const downloadUrl = `https://www.googleapis.com/drive/v3/files/${state.fileId}?alt=media`;
-        let response = await apiCall(downloadUrl);
-        if (!response) return;
-        
-        if (!response.ok) {
-            let errMsg = `HTTP ${response.status}`;
-            try {
-                const errData = await response.json();
-                if (errData.error && errData.error.message) {
-                    errMsg = errData.error.message;
-                }
-            } catch (e) {}
-            throw new Error(errMsg);
-        }
-        
-        let data = await response.json();
+        let data = await downloadFileContent(state.fileId);
         state.transactions = mergeTransactions(state.transactions || [], data || []);
         updateSyncStatusIndicator('connected', 'Google Drive');
         updateDataViews();
@@ -415,101 +293,21 @@ async function loadTransactionsFromGoogle() {
     }
 }
 
-async function createTransactionsFileInGoogle() {
-    updateSyncStatusIndicator('local', 'Erstelle...');
-    try {
-        const metadata = {
-            name: 'transactions.json',
-            mimeType: 'application/json'
-        };
-        
-        // Multi-part create REST request
-        const boundary = 'foo_bar_boundary';
-        const delimiter = `\r\n--${boundary}\r\n`;
-        const closeDelimiter = `\r\n--${boundary}--`;
-        
-        const body = 
-            delimiter +
-            'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
-            JSON.stringify(metadata) +
-            delimiter +
-            'Content-Type: application/json\r\n\r\n' +
-            JSON.stringify(SEED_DATA) +
-            closeDelimiter;
-
-        let response = await apiCall('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
-            method: 'POST',
-            headers: {
-                'Content-Type': `multipart/related; boundary=${boundary}`
-            },
-            body: body
-        });
-        
-        if (!response) return;
-        let file = await response.json();
-        state.fileId = file.id;
-        localStorage.setItem('gdrive_file_id', state.fileId);
-        state.transactions = SEED_DATA;
-        
-        updateSyncStatusIndicator('connected', 'Google Drive');
-        updateDataViews();
-    } catch (err) {
-        alert(`Drive File Creation Error: ${err.message}`);
-    }
-}
-
 async function saveTransactionsToGoogle() {
     if (!state.fileId) return;
     
     updateSyncStatusIndicator('local', 'Synchronisiere...');
     try {
-        // 1. Download latest remote transactions first
-        const downloadUrl = `https://www.googleapis.com/drive/v3/files/${state.fileId}?alt=media`;
-        let downloadResponse = await apiCall(downloadUrl);
-        let remoteTransactions = [];
-        if (downloadResponse) {
-            if (downloadResponse.ok) {
-                remoteTransactions = await downloadResponse.json() || [];
-            } else {
-                let errMsg = `HTTP ${downloadResponse.status}`;
-                try {
-                    const errData = await downloadResponse.json();
-                    if (errData.error && errData.error.message) {
-                        errMsg = errData.error.message;
-                    }
-                } catch (e) {}
-                throw new Error(`Download-Fehler vor dem Mergen: ${errMsg}`);
-            }
-        }
-
-        // 2. Merge local state.transactions with remoteTransactions
+        let remoteTransactions = await downloadFileContent(state.fileId) || [];
         const merged = mergeTransactions(state.transactions, remoteTransactions);
         state.transactions = merged;
 
-        // 3. Upload merged transactions back to Google Drive
-        const updateUrl = `https://www.googleapis.com/upload/drive/v3/files/${state.fileId}?uploadType=media`;
-        let response = await apiCall(updateUrl, {
-            method: 'PATCH',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(state.transactions)
-        });
-        
-        if (response) {
-            if (response.ok) {
-                updateSyncStatusIndicator('connected', 'Google Drive');
-                updateDataViews();
-            } else {
-                let errMsg = `HTTP ${response.status}`;
-                try {
-                    const errData = await response.json();
-                    if (errData.error && errData.error.message) {
-                        errMsg = errData.error.message;
-                    }
-                } catch (e) {}
-                throw new Error(`Upload-Fehler: ${errMsg}`);
-            }
+        let success = await uploadFileContent(state.fileId, state.transactions);
+        if (success) {
+            updateSyncStatusIndicator('connected', 'Google Drive');
+            updateDataViews();
+        } else {
+            throw new Error("Fehler beim Hochladen auf Google Drive.");
         }
     } catch (err) {
         updateSyncStatusIndicator('local', 'Fehler');
@@ -552,168 +350,10 @@ function handleDisconnect() {
     updateSyncStatusIndicator('local', 'Lokal');
 }
 
-// ==================== RENDERING AND LOGIC ====================
-function updateDataViews() {
-    renderMonthsList();
-    renderTransactionsList();
-    renderSummaryBox();
-}
-
-function renderMonthsList() {
-    const container = document.getElementById('months-list');
-    container.innerHTML = '';
-    
-    const year = state.selectedYear;
-    
-    // Group variable transactions for each month in the selected year
-    for (let m = 1; m <= 12; m++) {
-        const monthTrans = state.transactions.filter(t => {
-            if (t.isDeleted) return false;
-            if (t.isFixedCost) return false;
-            const d = new Date(t.date);
-            return d.getFullYear() === year && (d.getMonth() + 1) === m;
-        });
-        
-        const income = monthTrans.filter(t => t.isIncome).reduce((sum, t) => sum + parseFloat(t.amount || 0), 0);
-        const expenses = monthTrans.filter(t => !t.isIncome).reduce((sum, t) => sum + parseFloat(t.amount || 0), 0);
-        const surplus = income - expenses;
-        
-        const card = document.createElement('div');
-        card.className = `month-card ${state.selectedMonth === m ? 'selected' : ''}`;
-        card.addEventListener('click', () => {
-            state.selectedMonth = m;
-            updateDataViews();
-        });
-        
-        card.innerHTML = `
-            <h4>${MONTH_NAMES[m - 1]}</h4>
-            <div class="month-card-stats">
-                <span class="income">+${income.toFixed(2)} €</span>
-                <span class="expense">-${expenses.toFixed(2)} €</span>
-            </div>
-            <span class="surplus" style="color: ${surplus >= 0 ? 'var(--color-income)' : 'var(--color-expense)'}">
-                ${surplus >= 0 ? '+' : ''}${surplus.toFixed(2)} €
-            </span>
-        `;
-        container.appendChild(card);
-    }
-}
-
-function renderSummaryBox() {
-    const year = state.selectedYear;
-    const month = state.selectedMonth;
-    
-    document.getElementById('selected-month-label').textContent = `${MONTH_NAMES[month - 1]} ${year}`;
-    
-    const monthTrans = state.transactions.filter(t => {
-        if (t.isDeleted) return false;
-        if (t.isFixedCost) return false;
-        const d = new Date(t.date);
-        return d.getFullYear() === year && (d.getMonth() + 1) === month;
-    });
-    
-    const income = monthTrans.filter(t => t.isIncome).reduce((sum, t) => sum + parseFloat(t.amount || 0), 0);
-    const expenses = monthTrans.filter(t => !t.isIncome).reduce((sum, t) => sum + parseFloat(t.amount || 0), 0);
-    const surplus = income - expenses;
-    
-    document.getElementById('stat-income').textContent = `+${income.toFixed(2).replace('.', ',')} €`;
-    document.getElementById('stat-expenses').textContent = `-${expenses.toFixed(2).replace('.', ',')} €`;
-    
-    const surplusEl = document.getElementById('stat-surplus');
-    surplusEl.textContent = `${surplus >= 0 ? '+' : ''}${surplus.toFixed(2).replace('.', ',')} €`;
-    surplusEl.style.color = surplus >= 0 ? 'var(--color-income)' : 'var(--color-expense)';
-}
-
-function renderTransactionsList() {
-    const container = document.getElementById('transactions-list');
-    container.innerHTML = '';
-    
-    const year = state.selectedYear;
-    const month = state.selectedMonth;
-    
-    const monthTrans = state.transactions.filter(t => {
-        if (t.isDeleted) return false;
-        if (t.isFixedCost) return false;
-        const d = new Date(t.date);
-        return d.getFullYear() === year && (d.getMonth() + 1) === month;
-    });
-    
-    // Sort descending by date
-    monthTrans.sort((a, b) => new Date(b.date) - new Date(a.date));
-    
-    document.getElementById('transaction-count').textContent = monthTrans.length;
-    
-    if (monthTrans.length === 0) {
-        container.innerHTML = `
-            <div class="no-transactions">
-                Keine Buchungen für diesen Monat erfasst.<br>Tippen Sie auf das "+"-Symbol, um eine neue Buchung hinzuzufügen.
-            </div>
-        `;
-        return;
-    }
-    
-    monthTrans.forEach(t => {
-        const item = document.createElement('div');
-        item.className = 'transaction-item';
-        
-        const dateFormatted = new Date(t.date).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
-        const icon = CATEGORY_ICONS[t.category] || '📦';
-        
-        item.innerHTML = `
-            <div class="transaction-left">
-                <div class="category-icon">${icon}</div>
-                <div class="transaction-details">
-                    <h5>${escapeHtml(t.title)}</h5>
-                    <div class="subtitle">
-                        <span>${dateFormatted}</span>
-                        <span class="subtitle-badge">${escapeHtml(t.assignedTo || 'Gemeinsam')}</span>
-                    </div>
-                </div>
-            </div>
-            <div class="transaction-right">
-                <span class="amount ${t.isIncome ? 'income' : 'expense'}">
-                    ${t.isIncome ? '+' : '-'}${parseFloat(t.amount).toFixed(2).replace('.', ',')} €
-                </span>
-                <div class="transaction-actions">
-                    <button class="action-btn edit" data-id="${t.id}">
-                        <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
-                        </svg>
-                    </button>
-                    <button class="action-btn delete" data-id="${t.id}">
-                        <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
-                            <polyline points="3 6 5 6 21 6"></polyline>
-                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                        </svg>
-                    </button>
-                </div>
-            </div>
-        `;
-        
-        // Add click triggers
-        item.querySelector('.edit').addEventListener('click', (e) => {
-            e.stopPropagation();
-            openTransactionDialog(t.id);
-        });
-        item.querySelector('.delete').addEventListener('click', (e) => {
-            e.stopPropagation();
-            confirmDeleteTransaction(t.id);
-        });
-        
-        container.appendChild(item);
-    });
-}
-
-function escapeHtml(str) {
-    if (!str) return '';
-    return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
-}
-
 // ==================== TRANSACTION DIALOG (ADD / EDIT) ====================
 function openTransactionDialog(id = null) {
     state.editingTransactionId = id;
     
-    // Clear validation states
     document.getElementById('field-title').value = '';
     document.getElementById('field-amount').value = '';
     document.getElementById('field-type').value = 'expense';
@@ -721,7 +361,6 @@ function openTransactionDialog(id = null) {
     document.getElementById('field-assigned').value = 'Gemeinsam';
     document.getElementById('field-notes').value = '';
     
-    // Default date to active year/month
     const activeYear = state.selectedYear;
     const activeMonth = String(state.selectedMonth).padStart(2, '0');
     const today = new Date();
@@ -731,20 +370,18 @@ function openTransactionDialog(id = null) {
     document.getElementById('field-date').value = `${activeYear}-${activeMonth}-${day}`;
 
     if (id) {
-        // Edit Mode
         document.getElementById('dialog-title').textContent = "Eintrag bearbeiten";
-        const trans = state.transactions.find(t => t.id === id);
+        const trans = state.transactions.find(t => (t.id || t.Id) === id);
         if (trans) {
-            document.getElementById('field-title').value = trans.title;
-            document.getElementById('field-amount').value = Math.abs(trans.amount);
-            document.getElementById('field-type').value = trans.isIncome ? 'income' : 'expense';
-            document.getElementById('field-category').value = trans.category;
-            document.getElementById('field-assigned').value = trans.assignedTo || 'Gemeinsam';
-            document.getElementById('field-date').value = new Date(trans.date).toISOString().substring(0, 10);
-            document.getElementById('field-notes').value = trans.notes || '';
+            document.getElementById('field-title').value = trans.title || trans.Title;
+            document.getElementById('field-amount').value = Math.abs(trans.amount || trans.Amount);
+            document.getElementById('field-type').value = (trans.isIncome || trans.IsIncome) ? 'income' : 'expense';
+            document.getElementById('field-category').value = trans.category || trans.Category;
+            document.getElementById('field-assigned').value = trans.assignedTo || trans.AssignedTo || 'Gemeinsam';
+            document.getElementById('field-date').value = new Date(trans.date || trans.Date).toISOString().substring(0, 10);
+            document.getElementById('field-notes').value = trans.notes || trans.Notes || '';
         }
     } else {
-        // Create Mode
         document.getElementById('dialog-title').textContent = "Neuer Eintrag";
     }
     
@@ -776,8 +413,7 @@ function handleTransactionSave(e) {
     const isIncome = (type === 'income');
     
     if (state.editingTransactionId) {
-        // Edit existing transaction
-        const trans = state.transactions.find(t => t.id === state.editingTransactionId);
+        const trans = state.transactions.find(t => (t.id || t.Id) === state.editingTransactionId);
         if (trans) {
             trans.title = title;
             trans.amount = amount;
@@ -787,9 +423,18 @@ function handleTransactionSave(e) {
             trans.date = date;
             trans.notes = notes;
             trans.updatedAt = new Date().toISOString();
+            
+            // C# properties sync if loaded from desktop
+            trans.Title = title;
+            trans.Amount = amount;
+            trans.IsIncome = isIncome;
+            trans.Category = category;
+            trans.AssignedTo = assignedTo;
+            trans.Date = date;
+            trans.Notes = notes;
+            trans.UpdatedAt = trans.updatedAt;
         }
     } else {
-        // Add new transaction
         const newTrans = {
             id: generateUUID(),
             title: title,
@@ -803,32 +448,40 @@ function handleTransactionSave(e) {
             isDeleted: false,
             updatedAt: new Date().toISOString()
         };
+        // Also support C# property names
+        newTrans.Id = newTrans.id;
+        newTrans.Title = newTrans.title;
+        newTrans.Amount = newTrans.amount;
+        newTrans.IsIncome = newTrans.isIncome;
+        newTrans.Category = newTrans.category;
+        newTrans.AssignedTo = newTrans.assignedTo;
+        newTrans.Date = newTrans.date;
+        newTrans.Notes = newTrans.notes;
+        newTrans.IsFixedCost = newTrans.isFixedCost;
+        newTrans.IsDeleted = newTrans.isDeleted;
+        newTrans.UpdatedAt = newTrans.updatedAt;
+
         state.transactions.unshift(newTrans);
     }
     
-    // Save to storage depending on active mode
     if (state.mode === 'google') {
         saveTransactionsToGoogle();
     } else {
         saveTransactionsToLocal();
+        updateDataViews();
     }
     
     closeTransactionDialog();
 }
 
-function generateUUID() {
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-        var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
-        return v.toString(16);
-    });
-}
-
 // ==================== DELETE TRANSACTION CONFIRMATION ====================
 function confirmDeleteTransaction(id) {
     state.deletingTransactionId = id;
-    const trans = state.transactions.find(t => t.id === id);
+    const trans = state.transactions.find(t => (t.id || t.Id) === id);
     if (trans) {
-        document.getElementById('confirm-message').textContent = `Möchten Sie den Eintrag "${trans.title}" (${parseFloat(trans.amount).toFixed(2)} €) wirklich löschen?`;
+        const title = trans.title || trans.Title || '';
+        const amt = trans.amount || trans.Amount || 0;
+        document.getElementById('confirm-message').textContent = `Möchten Sie den Eintrag "${title}" (${parseFloat(amt).toFixed(2)} €) wirklich löschen?`;
         showOverlay('confirm-dialog');
     }
 }
@@ -836,47 +489,35 @@ function confirmDeleteTransaction(id) {
 function handleTransactionDeleteConfirmed() {
     const id = state.deletingTransactionId;
     if (id) {
-        const trans = state.transactions.find(t => t.id === id);
+        const trans = state.transactions.find(t => (t.id || t.Id) === id);
         if (trans) {
             trans.isDeleted = true;
             trans.updatedAt = new Date().toISOString();
+            trans.IsDeleted = true;
+            trans.UpdatedAt = trans.updatedAt;
         }
         
         if (state.mode === 'google') {
             saveTransactionsToGoogle();
         } else {
             saveTransactionsToLocal();
+            updateDataViews();
         }
     }
     hideOverlay('confirm-dialog');
     state.deletingTransactionId = null;
 }
 
-// ==================== PWA: APP INSTALL HELPER ====================
-// Kann aufgerufen werden um den nativen Installations-Dialog auszulösen
-function triggerPwaInstall() {
-    if (deferredInstallPrompt) {
-        deferredInstallPrompt.prompt();
-        deferredInstallPrompt.userChoice.then(choice => {
-            console.log('[PWA] Nutzer hat gewählt:', choice.outcome);
-            deferredInstallPrompt = null;
-        });
-    }
-}
-
 // ==================== TAB SWITCHING & BAUKOSTEN ====================
 function switchTab(tabId) {
     state.activeTab = tabId;
     
-    // Buttons aktualisieren
     document.getElementById('nav-dashboard').classList.toggle('active', tabId === 'dashboard');
     document.getElementById('nav-baukosten').classList.toggle('active', tabId === 'baukosten');
     
-    // Tab-Inhalte aktualisieren
     document.getElementById('tab-dashboard').classList.toggle('active', tabId === 'dashboard');
     document.getElementById('tab-baukosten').classList.toggle('active', tabId === 'baukosten');
     
-    // FAB bei Baukosten ausblenden
     document.getElementById('btn-add-transaction').style.display = tabId === 'dashboard' ? 'flex' : 'none';
     
     if (tabId === 'baukosten') {
@@ -884,25 +525,9 @@ function switchTab(tabId) {
     }
 }
 
-async function findBuildingCostsFile() {
-    if (!state.accessToken) return;
-    try {
-        let searchUrl = `https://www.googleapis.com/drive/v3/files?q=name='building_costs.json'+and+trashed=false&fields=files(id,name)`;
-        let response = await apiCall(searchUrl);
-        if (response && response.ok) {
-            let data = await response.json();
-            if (data.files && data.files.length > 0) {
-                state.buildingCostsFileId = data.files[0].id;
-                localStorage.setItem('gdrive_building_costs_file_id', state.buildingCostsFileId);
-            }
-        }
-    } catch (err) {
-        console.warn('[Drive] Fehler beim Suchen der Baukosten-Datei:', err);
-    }
-}
-
 async function loadBuildingCostsFromGoogle() {
     const listContainer = document.getElementById('baukosten-list');
+    if (!listContainer) return;
     
     if (state.mode !== 'google') {
         listContainer.innerHTML = `<div class="info-box">Baukosten können nur im Google Drive-Modus angezeigt werden.</div>`;
@@ -910,156 +535,21 @@ async function loadBuildingCostsFromGoogle() {
     }
     
     if (!state.buildingCostsFileId) {
-        await findBuildingCostsFile();
+        state.buildingCostsFileId = await searchFile('building_costs.json');
         if (!state.buildingCostsFileId) {
             listContainer.innerHTML = `<div class="info-box">Keine Baukosten-Datei 'building_costs.json' auf Ihrem Google Drive gefunden.<br><br>Bitte führen Sie in der PC-App eine <strong>Synchronisierung</strong> durch, um die Baukosten hochzuladen.</div>`;
             return;
         }
+        localStorage.setItem('gdrive_building_costs_file_id', state.buildingCostsFileId);
     }
     
     listContainer.innerHTML = `<div class="loading-state">Lade Baukosten...</div>`;
     
     try {
-        const downloadUrl = `https://www.googleapis.com/drive/v3/files/${state.buildingCostsFileId}?alt=media`;
-        let response = await apiCall(downloadUrl);
-        if (!response) return;
-        
-        if (!response.ok) {
-            let errMsg = `HTTP ${response.status}`;
-            try {
-                const errData = await response.json();
-                if (errData.error && errData.error.message) {
-                    errMsg = errData.error.message;
-                }
-            } catch (e) {}
-            throw new Error(errMsg);
-        }
-        
-        let data = await response.json();
+        let data = await downloadFileContent(state.buildingCostsFileId);
         state.buildingCosts = data || [];
         renderBuildingCosts();
     } catch (err) {
         listContainer.innerHTML = `<div class="info-box" style="color:var(--color-expense)">Fehler beim Laden der Baukosten:<br>${err.message}</div>`;
-    }
-}
-
-function formatCurrency(val) {
-    return `${val.toFixed(2).replace('.', ',')} €`;
-}
-
-function renderBuildingCosts() {
-    const container = document.getElementById('baukosten-list');
-    container.innerHTML = '';
-    
-    if (!state.buildingCosts || state.buildingCosts.length === 0) {
-        container.innerHTML = `<div class="info-box">Keine Baukosten-Einträge vorhanden.</div>`;
-        return;
-    }
-    
-    // 1. Berechne Summen
-    let totalAmount = 0;
-    let paidAmount = 0;
-    
-    state.buildingCosts.forEach(item => {
-        const amount = item.amount || item.Amount || 0;
-        const isPaid = item.isPaid !== undefined ? item.isPaid : (item.IsPaid !== undefined ? item.IsPaid : false);
-        
-        totalAmount += amount;
-        if (isPaid) {
-            paidAmount += amount;
-        }
-    });
-    
-    const unpaidAmount = totalAmount - paidAmount;
-    const progressPercent = totalAmount > 0 ? (paidAmount / totalAmount) * 100 : 0;
-    
-    document.getElementById('baukosten-total').textContent = formatCurrency(totalAmount);
-    document.getElementById('baukosten-paid').textContent = `+${formatCurrency(paidAmount)}`;
-    document.getElementById('baukosten-unpaid').textContent = `-${formatCurrency(unpaidAmount)}`;
-    document.getElementById('baukosten-progress-bar').style.width = `${progressPercent}%`;
-    
-    // 2. Gruppiere nach Kategorie
-    const groups = {};
-    state.buildingCosts.forEach(item => {
-        const cat = item.category || item.Category || 'Sonstiges';
-        if (!groups[cat]) groups[cat] = [];
-        groups[cat].push(item);
-    });
-    
-    // 3. Rendere Kategorien
-    for (const category in groups) {
-        const items = groups[category];
-        
-        let catTotal = 0;
-        let catPaid = 0;
-        items.forEach(item => {
-            const amt = item.amount || item.Amount || 0;
-            const paid = item.isPaid !== undefined ? item.isPaid : (item.IsPaid !== undefined ? item.IsPaid : false);
-            catTotal += amt;
-            if (paid) catPaid += amt;
-        });
-        
-        const card = document.createElement('div');
-        card.className = 'baukosten-category-card';
-        
-        let itemsHtml = '';
-        items.forEach(item => {
-            const name = item.name || item.Name || '';
-            const amt = item.amount || item.Amount || 0;
-            const paid = item.isPaid !== undefined ? item.isPaid : (item.IsPaid !== undefined ? item.IsPaid : false);
-            const paidBy = item.paidBy || item.PaidBy || '';
-            const paymentDate = item.paymentDate || item.PaymentDate || null;
-            
-            const statusClass = paid ? 'paid' : 'unpaid';
-            const statusIcon = paid ? '✓' : '•';
-            let paidText = 'Offen';
-            if (paid) {
-                paidText = 'Bezahlt';
-                if (paymentDate) {
-                    const d = new Date(paymentDate);
-                    if (!isNaN(d.getTime())) {
-                        paidText += ` am ${d.toLocaleDateString('de-DE')}`;
-                    }
-                }
-                if (paidBy) {
-                    paidText += ` von ${paidBy}`;
-                }
-            }
-            
-            itemsHtml += `
-                <div class="baukosten-item-row">
-                    <div class="baukosten-item-left">
-                        <div class="baukosten-item-status-icon ${statusClass}">
-                            ${statusIcon}
-                        </div>
-                        <div class="baukosten-item-details">
-                            <span class="baukosten-item-name">${name}</span>
-                            <span class="baukosten-item-meta">${paidText}</span>
-                        </div>
-                    </div>
-                    <div class="baukosten-item-right">
-                        <span class="baukosten-item-amount">${formatCurrency(amt)}</span>
-                        <span class="baukosten-item-paid-badge ${statusClass}">${paid ? 'Bezahlt' : 'Offen'}</span>
-                    </div>
-                </div>
-            `;
-        });
-        
-        card.innerHTML = `
-            <div class="baukosten-category-header">
-                <h4>${category}</h4>
-                <div class="baukosten-category-header-right">
-                    <div class="baukosten-category-header-amounts">
-                        <span class="total-amount">${formatCurrency(catTotal)}</span>
-                        <span class="paid-ratio">${formatCurrency(catPaid)} bezahlt</span>
-                    </div>
-                </div>
-            </div>
-            <div class="baukosten-items-list">
-                ${itemsHtml}
-            </div>
-        `;
-        
-        container.appendChild(card);
     }
 }
