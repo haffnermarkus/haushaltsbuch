@@ -118,6 +118,11 @@ function loadConfig() {
     document.getElementById('setting-api-key').value = state.apiKey;
 }
 
+function openSettingsDialog() {
+    document.getElementById('setting-file-id').value = state.fileId || '';
+    showOverlay('settings-dialog');
+}
+
 function initUI() {
     // Year dropdown select handler
     const selectYear = document.getElementById('active-year');
@@ -143,7 +148,7 @@ function initUI() {
     });
 
     // Settings modal button triggers
-    document.getElementById('btn-settings').addEventListener('click', () => showOverlay('settings-dialog'));
+    document.getElementById('btn-settings').addEventListener('click', () => openSettingsDialog());
     document.getElementById('btn-settings-cancel').addEventListener('click', () => hideOverlay('settings-dialog'));
     document.getElementById('btn-settings-save').addEventListener('click', saveSettings);
     document.getElementById('btn-settings-disconnect').addEventListener('click', handleDisconnect);
@@ -163,7 +168,7 @@ function initUI() {
     // Setup hint
     document.getElementById('link-setup-instructions').addEventListener('click', (e) => {
         e.preventDefault();
-        showOverlay('settings-dialog');
+        openSettingsDialog();
     });
 
     // Set today's date default in Form input
@@ -256,7 +261,7 @@ function tryAutoReconnect() {
 function handleGoogleConnect() {
     if (!state.clientId) {
         alert("Bitte konfigurieren Sie zuerst Ihre Google Client ID in den Einstellungen!");
-        showOverlay('settings-dialog');
+        openSettingsDialog();
         return;
     }
 
@@ -474,12 +479,21 @@ async function saveTransactionsToGoogle() {
 function saveSettings() {
     const cId = document.getElementById('setting-client-id').value.trim();
     const apiKey = document.getElementById('setting-api-key').value.trim();
+    const fileId = document.getElementById('setting-file-id').value.trim();
     
     state.clientId = cId;
     state.apiKey = apiKey;
     
     localStorage.setItem('gdrive_client_id', cId);
     localStorage.setItem('gdrive_api_key', apiKey);
+    
+    if (fileId && fileId !== state.fileId) {
+        state.fileId = fileId;
+        localStorage.setItem('gdrive_file_id', fileId);
+        if (state.mode === 'google') {
+            loadTransactionsFromGoogle();
+        }
+    }
     
     hideOverlay('settings-dialog');
     alert("Einstellungen erfolgreich gespeichert!");
