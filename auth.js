@@ -98,6 +98,20 @@ export async function onAuthSuccess(accessToken, existingFileId) {
         localStorage.setItem('gdrive_building_costs_file_id', bcId);
     }
 
+    // 4. Suche Fixkosten-Datei
+    let feId = await searchFile('fixed_expenses.json');
+    if (feId) {
+        state.fixedExpensesFileId = feId;
+        localStorage.setItem('gdrive_fixed_expenses_file_id', feId);
+    }
+
+    // 5. Suche Kredite-Datei
+    let loansId = await searchFile('loans.json');
+    if (loansId) {
+        state.loansFileId = loansId;
+        localStorage.setItem('gdrive_loans_file_id', loansId);
+    }
+
     // 3. Suche und lade Szenarieneinstellungen (Kategorien)
     let settingsId = await searchFile('scenario_settings.json');
     if (settingsId) {

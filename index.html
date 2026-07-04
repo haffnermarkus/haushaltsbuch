@@ -99,55 +99,272 @@
             <main class="app-main">
                 <!-- Dashboard Tab -->
                 <div id="tab-dashboard" class="tab-page active">
-                    <!-- Year selector dropdown row -->
-                    <div class="year-row">
-                        <label for="active-year">Aktives Jahr:</label>
-                        <select id="active-year" class="form-control select-year">
-                            <option value="2024">2024</option>
-                            <option value="2025">2025</option>
-                            <option value="2026" selected>2026</option>
-                            <option value="2027">2027</option>
-                            <option value="2028">2028</option>
-                        </select>
-                    </div>
+                    <!-- Dashboard Grid Overview -->
+                    <div class="dashboard-grid">
+                        <!-- Active Month Summary Widget -->
+                        <div class="summary-card dashboard-card">
+                            <div class="summary-row header">
+                                <h3>Aktueller Monat</h3>
+                                <span id="dash-month-label" class="badge">Monat</span>
+                            </div>
+                            <div class="summary-details">
+                                <div class="stat-box">
+                                    <span class="label">Einnahmen</span>
+                                    <span id="dash-stat-income" class="value income">+0,00 €</span>
+                                </div>
+                                <div class="stat-box">
+                                    <span class="label">Ausgaben</span>
+                                    <span id="dash-stat-expenses" class="value expense">-0,00 €</span>
+                                </div>
+                            </div>
+                            <div class="summary-surplus" style="margin-top: 14px; border-top: 1px solid var(--border-color); padding-top: 10px;">
+                                <span class="label font-bold">Überschuss:</span>
+                                <span id="dash-stat-surplus" class="value surplus-value">0,00 €</span>
+                            </div>
+                        </div>
 
-                    <!-- Horizontal Months cards swiper -->
-                    <div class="months-scroll-container">
-                        <div id="months-list" class="months-list">
-                            <!-- Filled by JS -->
+                        <!-- Baukosten Overview Widget -->
+                        <div class="summary-card dashboard-card baukosten-summary-card">
+                            <div class="summary-row header">
+                                <h3>Baukosten</h3>
+                                <span class="badge" style="background: rgba(99,102,241,0.2); color: var(--accent);">Status</span>
+                            </div>
+                            <div class="summary-details">
+                                <div class="stat-box">
+                                    <span class="label">Bezahlt</span>
+                                    <span id="dash-bc-paid" class="value income">0,00 €</span>
+                                </div>
+                                <div class="stat-box">
+                                    <span class="label">Offen</span>
+                                    <span id="dash-bc-unpaid" class="value expense">0,00 €</span>
+                                </div>
+                            </div>
+                            <div class="progress-container" style="margin-top: 14px; width: 100%; background: rgba(255,255,255,0.05); height: 8px; border-radius: 4px; overflow: hidden;">
+                                <div id="dash-bc-progress-bar" style="background: var(--color-income); height: 100%; width: 0%; transition: width 0.3s;"></div>
+                            </div>
+                        </div>
+
+                        <!-- Loans Overview Widget -->
+                        <div class="summary-card dashboard-card">
+                            <div class="summary-row header">
+                                <h3>Kredite</h3>
+                                <span class="badge" style="background: rgba(251,191,36,0.2); color: #fbbf24;">Restschuld</span>
+                            </div>
+                            <div class="summary-details">
+                                <div class="stat-box">
+                                    <span class="label">Kredite</span>
+                                    <span id="dash-loans-count" class="value">0</span>
+                                </div>
+                                <div class="stat-box">
+                                    <span class="label">Restschuld</span>
+                                    <span id="dash-loans-debt" class="value expense">0,00 €</span>
+                                </div>
+                            </div>
                         </div>
                     </div>
 
-                    <!-- Monthly summary Card -->
-                    <div class="summary-card">
+                    <!-- Recent Transactions -->
+                    <div class="transactions-title-row" style="margin-top: 24px;">
+                        <h4>Kürzliche Buchungen</h4>
+                    </div>
+                    <div id="dash-recent-transactions" class="transactions-list">
+                        <!-- Rendered by JS -->
+                    </div>
+                </div>
+
+                <!-- Transactions Tab (Auswertung & Filter) -->
+                <div id="tab-transactions" class="tab-page">
+                    <!-- Filter Panel -->
+                    <div class="filter-panel">
+                        <div class="form-group">
+                            <input type="text" id="filter-search" class="form-control" placeholder="Titel, Notizen durchsuchen...">
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group half">
+                                <label for="filter-year">Jahr</label>
+                                <select id="filter-year" class="form-control">
+                                    <option value="All">Alle</option>
+                                    <option value="2024">2024</option>
+                                    <option value="2025">2025</option>
+                                    <option value="2026" selected>2026</option>
+                                    <option value="2027">2027</option>
+                                    <option value="2028">2028</option>
+                                </select>
+                            </div>
+                            <div class="form-group half">
+                                <label for="filter-month">Monat</label>
+                                <select id="filter-month" class="form-control">
+                                    <option value="All">Alle Monate</option>
+                                    <option value="1">Januar</option>
+                                    <option value="2">Februar</option>
+                                    <option value="3">März</option>
+                                    <option value="4">April</option>
+                                    <option value="5">Mai</option>
+                                    <option value="6">Juni</option>
+                                    <option value="7">Juli</option>
+                                    <option value="8">August</option>
+                                    <option value="9">September</option>
+                                    <option value="10">Oktober</option>
+                                    <option value="11">November</option>
+                                    <option value="12">Dezember</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group half">
+                                <label for="filter-category">Kategorie</label>
+                                <select id="filter-category" class="form-control">
+                                    <option value="All">Alle Kategorien</option>
+                                    <option value="Gehalt">Gehalt</option>
+                                    <option value="Lebensmittel">Lebensmittel</option>
+                                    <option value="Wohnen">Wohnen</option>
+                                    <option value="Freizeit">Freizeit</option>
+                                    <option value="Transport">Transport</option>
+                                    <option value="Versicherungen">Versicherungen</option>
+                                    <option value="Kredite">Kredite</option>
+                                    <option value="Sonstiges">Sonstiges</option>
+                                </select>
+                            </div>
+                            <div class="form-group half">
+                                <label for="filter-assigned">Zuordnung</label>
+                                <select id="filter-assigned" class="form-control">
+                                    <option value="All">Alle Personen</option>
+                                    <option value="Gemeinsam">Gemeinsam</option>
+                                    <option value="Partner 1">Partner 1</option>
+                                    <option value="Partner 2">Partner 2</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Filter Summary Card -->
+                    <div class="summary-card filter-summary-card" style="margin-top: 16px;">
                         <div class="summary-row header">
-                            <h3 id="selected-month-label">Ausgewählter Monat</h3>
+                            <h3>Auswertungs-Summen</h3>
                         </div>
                         <div class="summary-details">
                             <div class="stat-box">
-                                <span class="label">Einnahmen</span>
-                                <span id="stat-income" class="value income">+0,00 €</span>
+                                <span class="label">Treffer-Einnahmen</span>
+                                <span id="filter-sum-income" class="value income">+0,00 €</span>
                             </div>
                             <div class="stat-box">
-                                <span class="label">Ausgaben</span>
-                                <span id="stat-expenses" class="value expense">-0,00 €</span>
+                                <span class="label">Treffer-Ausgaben</span>
+                                <span id="filter-sum-expense" class="value expense">-0,00 €</span>
                             </div>
                         </div>
-                        <div class="summary-surplus">
-                            <span class="label font-bold">Überschuss:</span>
-                            <span id="stat-surplus" class="value surplus-value">0,00 €</span>
+                        <div class="summary-surplus" style="margin-top: 10px; border-top: 1px solid var(--border-color); padding-top: 8px;">
+                            <span class="label font-bold">Netto-Überschuss:</span>
+                            <span id="filter-sum-surplus" class="value surplus-value">0,00 €</span>
                         </div>
                     </div>
 
-                    <!-- Transactions Title -->
-                    <div class="transactions-title-row">
-                        <h4>Manuelle Buchungen</h4>
-                        <span id="transaction-count" class="badge">0</span>
+                    <!-- Filtered Transactions list -->
+                    <div class="transactions-title-row" style="margin-top: 20px;">
+                        <h4>Gefilterte Einträge</h4>
+                        <span id="filter-transaction-count" class="badge">0</span>
+                    </div>
+                    <div id="filter-transactions-list" class="transactions-list">
+                        <!-- Rendered by JS -->
+                    </div>
+                </div>
+
+                <!-- Fixed Expenses Tab (Fixkosten) -->
+                <div id="tab-fixed-expenses" class="tab-page">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                        <h3 style="margin: 0; font-size: 18px; font-weight: 600;">Fixkosten-Planer</h3>
+                        <button id="btn-add-fixed-expense" class="btn btn-primary btn-sm" style="width: auto; padding: 8px 14px;">+ Hinzufügen</button>
                     </div>
 
-                    <!-- Vertical Transactions List -->
-                    <div id="transactions-list" class="transactions-list">
+                    <!-- Fixed Expenses Totals -->
+                    <div class="summary-card">
+                        <div class="summary-details">
+                            <div class="stat-box">
+                                <span class="label">Fix-Einnahmen</span>
+                                <span id="fixed-total-income" class="value income">+0,00 €</span>
+                            </div>
+                            <div class="stat-box">
+                                <span class="label">Fix-Ausgaben</span>
+                                <span id="fixed-total-expenses" class="value expense">-0,00 €</span>
+                            </div>
+                        </div>
+                        <div class="summary-surplus" style="margin-top: 10px; border-top: 1px solid var(--border-color); padding-top: 8px;">
+                            <span class="label font-bold">Netto Fixkosten:</span>
+                            <span id="fixed-total-surplus" class="value surplus-value">0,00 €</span>
+                        </div>
+                    </div>
+
+                    <!-- List of Fixed Expenses -->
+                    <div class="transactions-title-row" style="margin-top: 24px;">
+                        <h4>Registrierte Fixkosten</h4>
+                        <span id="fixed-expenses-count" class="badge">0</span>
+                    </div>
+                    <div id="fixed-expenses-list" class="transactions-list">
                         <!-- Filled by JS -->
+                    </div>
+                </div>
+
+                <!-- Loans Tab (Kredite) -->
+                <div id="tab-loans" class="tab-page">
+                    <div class="form-group" style="margin-bottom: 16px;">
+                        <label for="loan-selector" style="font-weight: 600; margin-bottom: 6px; display: block;">Kredit auswählen</label>
+                        <select id="loan-selector" class="form-control">
+                            <!-- Filled dynamically by JS -->
+                        </select>
+                    </div>
+
+                    <!-- Loan Stats Card -->
+                    <div id="loan-stats-container">
+                        <!-- Filled dynamically by JS -->
+                    </div>
+
+                    <!-- Sondertilgung list and Add Option -->
+                    <div id="loan-sondertilgung-container" class="summary-card" style="margin-top: 16px; display: none;">
+                        <h4 style="margin: 0 0 12px 0;">Einmalige Sondertilgungen</h4>
+                        <div id="loan-sondertilgungen-list" style="display:flex; flex-direction:column; gap:8px;">
+                            <!-- Filled dynamically by JS -->
+                        </div>
+                        
+                        <!-- Add Sondertilgung Inline Form -->
+                        <div style="border-top:1px solid var(--border-color); padding-top:12px; margin-top:12px;">
+                            <h5 style="margin: 0 0 8px 0; font-size:13px;">Sondertilgung hinzufügen</h5>
+                            <div class="form-row" style="display:flex; gap:8px; align-items:flex-end;">
+                                <div class="form-group" style="flex:1; margin-bottom:0;">
+                                    <label style="font-size:11px;">Jahr (1-30)</label>
+                                    <input type="number" id="add-st-year" class="form-control" min="1" max="50" placeholder="Jahr">
+                                </div>
+                                <div class="form-group" style="flex:2; margin-bottom:0;">
+                                    <label style="font-size:11px;">Betrag (€)</label>
+                                    <input type="number" id="add-st-amount" class="form-control" placeholder="0,00">
+                                </div>
+                                <button id="btn-add-st" class="btn btn-primary" style="width:auto; padding:10px 14px; height:38px;">+</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Amortization Schedule Table -->
+                    <div id="loan-schedule-container" style="margin-top: 24px; display: none;">
+                        <h4>Tilgungsplan (Jährliche Übersicht)</h4>
+                        <div class="table-responsive" style="overflow-x: auto; width: 100%; border-radius: 8px; border: 1px solid var(--border-color);">
+                            <table class="schedule-table" style="width: 100%; border-collapse: collapse; text-align: left; font-size: 13px;">
+                                <thead>
+                                    <tr style="background: rgba(255,255,255,0.02); border-bottom: 1px solid var(--border-color);">
+                                        <th style="padding: 10px 12px;">Jahr</th>
+                                        <th style="padding: 10px 12px;">Anfangssaldo</th>
+                                        <th style="padding: 10px 12px;">Zinsen</th>
+                                        <th style="padding: 10px 12px;">Tilgung</th>
+                                        <th style="padding: 10px 12px;">Sondertilgung</th>
+                                        <th style="padding: 10px 12px;">Endsaldo</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="loan-schedule-tbody">
+                                    <!-- Filled dynamically by JS -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    
+                    <div id="loans-empty-view" class="info-box" style="display:none;">
+                        Keine Kredite geladen. Bitte erstellen Sie Kredite in der PC-Software.
                     </div>
                 </div>
 
@@ -216,12 +433,36 @@
             <div class="sidebar-content">
                 <button id="sidebar-nav-dashboard" class="sidebar-item active">
                     <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="3" y="3" width="7" height="9"></rect>
+                        <rect x="14" y="3" width="7" height="5"></rect>
+                        <rect x="14" y="12" width="7" height="9"></rect>
+                        <rect x="3" y="16" width="7" height="5"></rect>
+                    </svg>
+                    <span>Dashboard</span>
+                </button>
+                <button id="sidebar-nav-transactions" class="sidebar-item">
+                    <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
                         <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
                         <line x1="16" y1="2" x2="16" y2="6"></line>
                         <line x1="8" y1="2" x2="8" y2="6"></line>
                         <line x1="3" y1="10" x2="21" y2="10"></line>
                     </svg>
                     <span>Buchungen</span>
+                </button>
+                <button id="sidebar-nav-fixed-expenses" class="sidebar-item">
+                    <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="3" y="4" width="18" height="16" rx="2"></rect>
+                        <line x1="3" y1="10" x2="21" y2="10"></line>
+                        <line x1="8" y1="14" x2="16" y2="14"></line>
+                    </svg>
+                    <span>Fixkosten</span>
+                </button>
+                <button id="sidebar-nav-loans" class="sidebar-item">
+                    <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="12" y1="1" x2="12" y2="23"></line>
+                        <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
+                    </svg>
+                    <span>Kredite</span>
                 </button>
                 <button id="sidebar-nav-baukosten" class="sidebar-item">
                     <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
@@ -377,6 +618,145 @@
                 <button id="btn-settings-disconnect" class="btn btn-danger">Trennen</button>
                 <button id="btn-settings-cancel" class="btn btn-secondary">Schließen</button>
                 <button id="btn-settings-save" class="btn btn-primary">Speichern</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Transaction Detail Sheet Dialog -->
+    <div id="transaction-detail-dialog" class="dialog-overlay">
+        <div class="bottom-sheet">
+            <div class="sheet-header">
+                <h3>Buchungsdetails</h3>
+                <button id="detail-btn-close" class="close-button">
+                    <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
+            </div>
+            <div class="sheet-content" style="padding-top: 10px;">
+                <div class="detail-hero" style="text-align: center; padding: 16px 0; border-bottom: 1px solid var(--border-color); margin-bottom: 20px;">
+                    <div id="detail-category-icon" class="category-icon" style="width: 64px; height: 64px; font-size: 32px; margin: 0 auto 12px auto;">📦</div>
+                    <h2 id="detail-title" style="font-size: 20px; font-weight: 700; margin: 0 0 4px 0;">Buchung</h2>
+                    <span id="detail-amount" class="amount" style="font-size: 24px; font-weight: 700;">0,00 €</span>
+                </div>
+                
+                <div class="detail-rows-container" style="display:flex; flex-direction:column; gap:16px; margin-bottom: 24px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <span class="label" style="color:var(--text-secondary); font-size:13px;">Datum</span>
+                        <span id="detail-date" style="font-weight:600; font-size:14px;">-</span>
+                    </div>
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <span class="label" style="color:var(--text-secondary); font-size:13px;">Kategorie</span>
+                        <span id="detail-category" style="font-weight:600; font-size:14px;">-</span>
+                    </div>
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <span class="label" style="color:var(--text-secondary); font-size:13px;">Zuordnung</span>
+                        <span id="detail-assigned" style="font-weight:600; font-size:14px;">-</span>
+                    </div>
+                    <div>
+                        <span class="label" style="color:var(--text-secondary); font-size:13px; display:block; margin-bottom:4px;">Notizen</span>
+                        <div id="detail-notes" style="background:rgba(255,255,255,0.02); border:1px solid var(--border-color); padding:10px 14px; border-radius:8px; font-size:13px; line-height:1.4; color:var(--text-secondary); min-height:48px;">-</div>
+                    </div>
+                </div>
+                
+                <div style="display:flex; gap:12px;">
+                    <button id="detail-btn-delete" class="btn btn-danger" style="flex:1;">Löschen</button>
+                    <button id="detail-btn-edit" class="btn btn-primary" style="flex:1;">Bearbeiten</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add/Edit Fixed Expense Dialog -->
+    <div id="fixed-expense-dialog" class="dialog-overlay">
+        <div class="bottom-sheet">
+            <div class="sheet-header">
+                <h3 id="fixed-dialog-title">Fixkosten Eintrag</h3>
+                <button id="fixed-dialog-btn-close" class="close-button">
+                    <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
+            </div>
+            
+            <form id="fixed-expense-form" class="sheet-content">
+                <input type="hidden" id="fixed-field-id">
+                
+                <div class="form-group">
+                    <label for="fixed-field-title">Titel</label>
+                    <input type="text" id="fixed-field-title" class="form-control" placeholder="Miete, Gehalt, etc." required>
+                </div>
+                
+                <div class="form-row">
+                    <div class="form-group half">
+                        <label for="fixed-field-amount">Betrag (€)</label>
+                        <input type="number" step="0.01" id="fixed-field-amount" class="form-control" placeholder="0,00" required>
+                    </div>
+                    
+                    <div class="form-group half">
+                        <label for="fixed-field-type">Typ</label>
+                        <select id="fixed-field-type" class="form-control">
+                            <option value="expense">Ausgabe</option>
+                            <option value="income">Einnahme</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group half">
+                        <label for="fixed-field-category">Kategorie</label>
+                        <select id="fixed-field-category" class="form-control">
+                            <option value="Gehalt">Gehalt</option>
+                            <option value="Lebensmittel">Lebensmittel</option>
+                            <option value="Wohnen">Wohnen</option>
+                            <option value="Freizeit">Freizeit</option>
+                            <option value="Transport">Transport</option>
+                            <option value="Versicherungen">Versicherungen</option>
+                            <option value="Kredite">Kredite</option>
+                            <option value="Sonstiges" selected>Sonstiges</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group half">
+                        <label for="fixed-field-day">Ausführungstag (1-28)</label>
+                        <input type="number" id="fixed-field-day" class="form-control" min="1" max="28" value="1" required>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group half">
+                        <label for="fixed-field-assigned">Zuordnung</label>
+                        <select id="fixed-field-assigned" class="form-control">
+                            <option value="Gemeinsam">Gemeinsam</option>
+                            <option value="Partner 1">Partner 1</option>
+                            <option value="Partner 2">Partner 2</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="fixed-field-notes">Notizen (optional)</label>
+                    <textarea id="fixed-field-notes" class="form-control" rows="2" placeholder="Notizen..."></textarea>
+                </div>
+
+                <div class="form-actions">
+                    <button type="button" id="btn-fixed-dialog-cancel" class="btn btn-secondary">Abbrechen</button>
+                    <button type="submit" id="btn-fixed-dialog-save" class="btn btn-primary">Speichern</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Fixed Expense Delete Confirmation Dialog -->
+    <div id="fixed-confirm-dialog" class="dialog-overlay popup">
+        <div class="popup-box">
+            <h3 id="fixed-confirm-title">Löschen bestätigen</h3>
+            <p id="fixed-confirm-message">Möchten Sie diese Fixkosten wirklich löschen?</p>
+            <div class="popup-actions">
+                <button id="btn-fixed-confirm-cancel" class="btn btn-secondary">Abbrechen</button>
+                <button id="btn-fixed-confirm-ok" class="btn btn-danger">Löschen</button>
             </div>
         </div>
     </div>

@@ -6,7 +6,12 @@ import {
     formatCurrency, 
     generateUUID, 
     loadTransactionsFromLocal, 
-    saveTransactionsToLocal 
+    saveTransactionsToLocal,
+    loadFixedExpensesFromLocal,
+    saveFixedExpensesToLocal,
+    loadLoansFromLocal,
+    saveLoansToLocal,
+    updateSingleLoanCalculations
 } from './state.js';
 
 import { 
@@ -29,7 +34,11 @@ import {
     renderTransactionsList, 
     renderSummaryBox, 
     renderBuildingCosts, 
-    populateCategoryDropdown 
+    populateCategoryDropdown,
+    renderLoans,
+    renderFixedExpenses,
+    renderFilterableTransactions,
+    showTransactionDetails
 } from './ui.js';
 
 export { 
@@ -40,7 +49,10 @@ export {
     loadTransactionsFromGoogle, 
     showScreen, 
     updateSyncStatusIndicator, 
-    handleDisconnect 
+    handleDisconnect,
+    openFixedExpenseDialog,
+    confirmDeleteFixedExpense,
+    saveLoansToGoogle
 };
 
 // ==================== PWA: SERVICE WORKER REGISTRIERUNG ====================
@@ -184,6 +196,21 @@ function initUI() {
         switchTab('dashboard');
         hideOverlay('sidebar-menu');
     });
+    const navTrans = document.getElementById('sidebar-nav-transactions');
+    if (navTrans) navTrans.addEventListener('click', () => {
+        switchTab('transactions');
+        hideOverlay('sidebar-menu');
+    });
+    const navFixed = document.getElementById('sidebar-nav-fixed-expenses');
+    if (navFixed) navFixed.addEventListener('click', () => {
+        switchTab('fixed-expenses');
+        hideOverlay('sidebar-menu');
+    });
+    const navLoans = document.getElementById('sidebar-nav-loans');
+    if (navLoans) navLoans.addEventListener('click', () => {
+        switchTab('loans');
+        hideOverlay('sidebar-menu');
+    });
     const navBau = document.getElementById('sidebar-nav-baukosten');
     if (navBau) navBau.addEventListener('click', () => {
         switchTab('baukosten');
@@ -194,6 +221,18 @@ function initUI() {
         openSettingsDialog();
         hideOverlay('sidebar-menu');
     });
+
+    // Evaluation Filter listeners
+    const filterSearch = document.getElementById('filter-search');
+    if (filterSearch) filterSearch.addEventListener('input', renderFilterableTransactions);
+    ['filter-year', 'filter-month', 'filter-category', 'filter-assigned'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('change', renderFilterableTransactions);
+    });
+
+    // Transaction Details Close
+    const btnDetailClose = document.getElementById('detail-btn-close');
+    if (btnDetailClose) btnDetailClose.addEventListener('click', () => hideOverlay('transaction-detail-dialog'));
 
     // FAB Add transaction
     const btnAdd = document.getElementById('btn-add-transaction');
@@ -206,6 +245,31 @@ function initUI() {
     if (btnCancel) btnCancel.addEventListener('click', closeTransactionDialog);
     const form = document.getElementById('transaction-form');
     if (form) form.addEventListener('submit', handleTransactionSave);
+
+    // Fixed Expenses events
+    const btnAddFixed = document.getElementById('btn-add-fixed-expense');
+    if (btnAddFixed) btnAddFixed.addEventListener('click', () => openFixedExpenseDialog());
+    const btnFixedClose = document.getElementById('fixed-dialog-btn-close');
+    if (btnFixedClose) btnFixedClose.addEventListener('click', closeFixedExpenseDialog);
+    const btnFixedCancel = document.getElementById('btn-fixed-dialog-cancel');
+    if (btnFixedCancel) btnFixedCancel.addEventListener('click', closeFixedExpenseDialog);
+    const fixedForm = document.getElementById('fixed-expense-form');
+    if (fixedForm) fixedForm.addEventListener('submit', handleFixedExpenseSave);
+    const btnFixedConfirmCancel = document.getElementById('btn-fixed-confirm-cancel');
+    if (btnFixedConfirmCancel) btnFixedConfirmCancel.addEventListener('click', () => hideOverlay('fixed-confirm-dialog'));
+    const btnFixedConfirmOk = document.getElementById('btn-fixed-confirm-ok');
+    if (btnFixedConfirmOk) btnFixedConfirmOk.addEventListener('click', handleFixedExpenseDeleteConfirmed);
+
+    // Loans events
+    const loanSelector = document.getElementById('loan-selector');
+    if (loanSelector) {
+        loanSelector.addEventListener('change', (e) => {
+            state.selectedLoanId = e.target.value;
+            renderLoans();
+        });
+    }
+    const btnAddSt = document.getElementById('btn-add-st');
+    if (btnAddSt) btnAddSt.addEventListener('click', handleAddSondertilgung);
 
     // Confirm dialog triggers
     const btnConfirmCancel = document.getElementById('btn-confirm-cancel');
@@ -261,6 +325,8 @@ function handleLocalModeStart() {
     showScreen('main-screen');
     updateSyncStatusIndicator('local', 'Lokal');
     loadTransactionsFromLocal();
+    loadFixedExpensesFromLocal();
+    loadLoansFromLocal();
     updateDataViews();
 }
 
@@ -308,13 +374,40 @@ async function loadTransactionsFromGoogle() {
     
     updateSyncStatusIndicator('local', 'Lade...');
     try {
+        // 1. Transactions
         let data = await downloadFileContent(state.fileId);
         state.transactions = mergeTransactions(state.transactions || [], data || []);
+        
+        // 2. Fixed Expenses
+        if (!state.fixedExpensesFileId) {
+            state.fixedExpensesFileId = await searchFile('fixed_expenses.json');
+            if (state.fixedExpensesFileId) localStorage.setItem('gdrive_fixed_expenses_file_id', state.fixedExpensesFileId);
+        }
+        if (state.fixedExpensesFileId) {
+            state.fixedExpenses = await downloadFileContent(state.fixedExpensesFileId) || [];
+        }
+
+        // 3. Loans
+        if (!state.loansFileId) {
+            state.loansFileId = await searchFile('loans.json');
+            if (state.loansFileId) localStorage.setItem('gdrive_loans_file_id', state.loansFileId);
+        }
+        if (state.loansFileId) {
+            state.loans = await downloadFileContent(state.loansFileId) || [];
+            // Run calculations for each loan
+            state.loans.forEach(loan => updateSingleLoanCalculations(loan));
+        }
+
+        // 4. Baukosten (if file id cached)
+        if (state.buildingCostsFileId) {
+            state.buildingCosts = await downloadFileContent(state.buildingCostsFileId) || [];
+        }
+        
         updateSyncStatusIndicator('connected', 'Google Drive');
         updateDataViews();
     } catch (err) {
         updateSyncStatusIndicator('local', 'Fehler');
-        alert(`Drive Download Error: ${err.message}`);
+        console.error("Drive Download Error:", err);
     }
 }
 
@@ -537,19 +630,24 @@ function handleTransactionDeleteConfirmed() {
 function switchTab(tabId) {
     state.activeTab = tabId;
     
-    const navDash = document.getElementById('sidebar-nav-dashboard');
-    const navBau = document.getElementById('sidebar-nav-baukosten');
+    const tabs = ['dashboard', 'transactions', 'fixed-expenses', 'loans', 'baukosten'];
+    tabs.forEach(tab => {
+        const navEl = document.getElementById(`sidebar-nav-${tab}`);
+        if (navEl) navEl.classList.toggle('active', tabId === tab);
+        
+        const pageEl = document.getElementById(`tab-${tab}`);
+        if (pageEl) pageEl.classList.toggle('active', tabId === tab);
+    });
     
-    if (navDash) navDash.classList.toggle('active', tabId === 'dashboard');
-    if (navBau) navBau.classList.toggle('active', tabId === 'baukosten');
-    
-    document.getElementById('tab-dashboard').classList.toggle('active', tabId === 'dashboard');
-    document.getElementById('tab-baukosten').classList.toggle('active', tabId === 'baukosten');
-    
-    document.getElementById('btn-add-transaction').style.display = tabId === 'dashboard' ? 'flex' : 'none';
+    const btnAdd = document.getElementById('btn-add-transaction');
+    if (btnAdd) {
+        btnAdd.style.display = (tabId === 'dashboard' || tabId === 'transactions') ? 'flex' : 'none';
+    }
     
     if (tabId === 'baukosten') {
         loadBuildingCostsFromGoogle();
+    } else {
+        updateDataViews();
     }
 }
 
@@ -579,5 +677,239 @@ async function loadBuildingCostsFromGoogle() {
         renderBuildingCosts();
     } catch (err) {
         listContainer.innerHTML = `<div class="info-box" style="color:var(--color-expense)">Fehler beim Laden der Baukosten:<br>${err.message}</div>`;
+    }
+}
+
+// ==================== FIXED EXPENSES GOOGLE SYNC ====================
+async function saveFixedExpensesToGoogle() {
+    if (!state.fixedExpensesFileId) {
+        state.fixedExpensesFileId = await searchFile('fixed_expenses.json');
+        if (!state.fixedExpensesFileId) {
+            state.fixedExpensesFileId = await createFileInGoogle('fixed_expenses.json', state.fixedExpenses);
+            if (state.fixedExpensesFileId) localStorage.setItem('gdrive_fixed_expenses_file_id', state.fixedExpensesFileId);
+        }
+    }
+    
+    if (!state.fixedExpensesFileId) return;
+    
+    updateSyncStatusIndicator('local', 'Synchronisiere...');
+    try {
+        let success = await uploadFileContent(state.fixedExpensesFileId, state.fixedExpenses);
+        if (success) {
+            updateSyncStatusIndicator('connected', 'Google Drive');
+            updateDataViews();
+        } else {
+            throw new Error("Fehler beim Hochladen der Fixkosten.");
+        }
+    } catch (err) {
+        updateSyncStatusIndicator('local', 'Fehler');
+        console.error("Fixed Expenses Sync Error:", err);
+    }
+}
+
+// ==================== LOANS GOOGLE SYNC ====================
+async function saveLoansToGoogle() {
+    if (!state.loansFileId) {
+        state.loansFileId = await searchFile('loans.json');
+        if (!state.loansFileId) {
+            state.loansFileId = await createFileInGoogle('loans.json', state.loans);
+            if (state.loansFileId) localStorage.setItem('gdrive_loans_file_id', state.loansFileId);
+        }
+    }
+    
+    if (!state.loansFileId) return;
+    
+    updateSyncStatusIndicator('local', 'Synchronisiere...');
+    try {
+        let success = await uploadFileContent(state.loansFileId, state.loans);
+        if (success) {
+            updateSyncStatusIndicator('connected', 'Google Drive');
+            state.loans.forEach(loan => updateSingleLoanCalculations(loan));
+            updateDataViews();
+        } else {
+            throw new Error("Fehler beim Hochladen der Kredite.");
+        }
+    } catch (err) {
+        updateSyncStatusIndicator('local', 'Fehler');
+        console.error("Loans Sync Error:", err);
+    }
+}
+
+// ==================== FIXED EXPENSES CRUD HANDLERS ====================
+function openFixedExpenseDialog(id = null) {
+    state.editingFixedExpenseId = id;
+    
+    document.getElementById('fixed-field-title').value = '';
+    document.getElementById('fixed-field-amount').value = '';
+    document.getElementById('fixed-field-type').value = 'expense';
+    document.getElementById('fixed-field-category').value = 'Sonstiges';
+    document.getElementById('fixed-field-day').value = '1';
+    document.getElementById('fixed-field-assigned').value = 'Gemeinsam';
+    document.getElementById('fixed-field-notes').value = '';
+
+    if (id) {
+        document.getElementById('fixed-dialog-title').textContent = "Fixkosten bearbeiten";
+        const fe = state.fixedExpenses.find(f => (f.id || f.Id) === id);
+        if (fe) {
+            document.getElementById('fixed-field-title').value = fe.title || fe.Title || '';
+            document.getElementById('fixed-field-amount').value = Math.abs(fe.amount || fe.Amount || 0);
+            document.getElementById('fixed-field-type').value = (fe.isIncome || fe.IsIncome) ? 'income' : 'expense';
+            document.getElementById('fixed-field-category').value = fe.category || fe.Category || 'Sonstiges';
+            document.getElementById('fixed-field-day').value = fe.dayOfMonth || fe.DayOfMonth || 1;
+            document.getElementById('fixed-field-assigned').value = fe.assignedTo || fe.AssignedTo || 'Gemeinsam';
+            document.getElementById('fixed-field-notes').value = fe.notes || fe.Notes || '';
+        }
+    } else {
+        document.getElementById('fixed-dialog-title').textContent = "Neue Fixkosten";
+    }
+    
+    showOverlay('fixed-expense-dialog');
+}
+
+function closeFixedExpenseDialog() {
+    hideOverlay('fixed-expense-dialog');
+    state.editingFixedExpenseId = null;
+}
+
+function handleFixedExpenseSave(e) {
+    e.preventDefault();
+    
+    const title = document.getElementById('fixed-field-title').value.trim();
+    const amount = parseFloat(document.getElementById('fixed-field-amount').value);
+    const type = document.getElementById('fixed-field-type').value;
+    const category = document.getElementById('fixed-field-category').value;
+    const dayOfMonth = parseInt(document.getElementById('fixed-field-day').value) || 1;
+    const assignedTo = document.getElementById('fixed-field-assigned').value;
+    const notes = document.getElementById('fixed-field-notes').value.trim();
+    
+    if (!title || isNaN(amount) || amount <= 0) {
+        alert("Bitte füllen Sie alle Pflichtfelder korrekt aus.");
+        return;
+    }
+    
+    const isIncome = (type === 'income');
+    
+    if (state.editingFixedExpenseId) {
+        const fe = state.fixedExpenses.find(f => (f.id || f.Id) === state.editingFixedExpenseId);
+        if (fe) {
+            fe.title = title;
+            fe.amount = amount;
+            fe.isIncome = isIncome;
+            fe.category = category;
+            fe.dayOfMonth = dayOfMonth;
+            fe.assignedTo = assignedTo;
+            fe.notes = notes;
+            
+            fe.Title = title;
+            fe.Amount = amount;
+            fe.IsIncome = isIncome;
+            fe.Category = category;
+            fe.DayOfMonth = dayOfMonth;
+            fe.AssignedTo = assignedTo;
+            fe.Notes = notes;
+        }
+    } else {
+        const newFe = {
+            id: generateUUID(),
+            title: title,
+            amount: amount,
+            isIncome: isIncome,
+            category: category,
+            dayOfMonth: dayOfMonth,
+            assignedTo: assignedTo,
+            notes: notes
+        };
+        newFe.Id = newFe.id;
+        newFe.Title = newFe.title;
+        newFe.Amount = newFe.amount;
+        newFe.IsIncome = newFe.isIncome;
+        newFe.Category = newFe.category;
+        newFe.DayOfMonth = newFe.dayOfMonth;
+        newFe.AssignedTo = newFe.assignedTo;
+        newFe.Notes = newFe.notes;
+
+        state.fixedExpenses.push(newFe);
+    }
+    
+    if (state.mode === 'google') {
+        saveFixedExpensesToGoogle();
+    } else {
+        saveFixedExpensesToLocal();
+        updateDataViews();
+    }
+    
+    closeFixedExpenseDialog();
+}
+
+function confirmDeleteFixedExpense(id) {
+    state.deletingFixedExpenseId = id;
+    const fe = state.fixedExpenses.find(f => (f.id || f.Id) === id);
+    if (fe) {
+        const title = fe.title || fe.Title || '';
+        const amt = fe.amount || fe.Amount || 0;
+        document.getElementById('fixed-confirm-message').textContent = `Möchten Sie den Fixkosten-Eintrag "${title}" (${parseFloat(amt).toFixed(2)} €) wirklich löschen?`;
+        showOverlay('fixed-confirm-dialog');
+    }
+}
+
+function handleFixedExpenseDeleteConfirmed() {
+    const id = state.deletingFixedExpenseId;
+    if (id) {
+        const idx = state.fixedExpenses.findIndex(f => (f.id || f.Id) === id);
+        if (idx !== -1) {
+            state.fixedExpenses.splice(idx, 1);
+        }
+        
+        if (state.mode === 'google') {
+            saveFixedExpensesToGoogle();
+        } else {
+            saveFixedExpensesToLocal();
+            updateDataViews();
+        }
+    }
+    hideOverlay('fixed-confirm-dialog');
+    state.deletingFixedExpenseId = null;
+}
+
+// ==================== SONDERTILGUNG HANDLER ====================
+function handleAddSondertilgung() {
+    const yrInput = document.getElementById('add-st-year');
+    const amtInput = document.getElementById('add-st-amount');
+    if (!yrInput || !amtInput) return;
+
+    const year = parseInt(yrInput.value);
+    const amount = parseFloat(amtInput.value);
+
+    if (isNaN(year) || year < 1 || isNaN(amount) || amount <= 0) {
+        alert("Bitte geben Sie ein gültiges Jahr und einen Betrag ein.");
+        return;
+    }
+
+    if (!state.selectedLoanId) {
+        alert("Kein Kredit ausgewählt.");
+        return;
+    }
+
+    const loan = state.loans.find(l => (l.id || l.Id) === state.selectedLoanId);
+    if (!loan) return;
+
+    if (!loan.oneTimeSondertilgungen && !loan.OneTimeSondertilgungen) {
+        loan.oneTimeSondertilgungen = [];
+    }
+    const list = loan.oneTimeSondertilgungen || loan.OneTimeSondertilgungen;
+    list.push({
+        year: year,
+        amount: amount,
+        isApplied: true
+    });
+
+    yrInput.value = '';
+    amtInput.value = '';
+
+    if (state.mode === 'google') {
+        saveLoansToGoogle();
+    } else {
+        saveLoansToLocal();
+        renderLoans();
     }
 }

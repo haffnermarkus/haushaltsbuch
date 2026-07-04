@@ -1,146 +1,292 @@
-import { state, MONTH_NAMES, escapeHtml, formatCurrency, getCategoryEmoji } from './state.js';
-import { openTransactionDialog, confirmDeleteTransaction } from './app.js';
+import { 
+    state, 
+    MONTH_NAMES, 
+    escapeHtml, 
+    formatCurrency, 
+    getCategoryEmoji, 
+    runAnnuitySimulation, 
+    updateSingleLoanCalculations 
+} from './state.js';
+
+import { 
+    openTransactionDialog, 
+    confirmDeleteTransaction,
+    openFixedExpenseDialog,
+    confirmDeleteFixedExpense
+} from './app.js';
 
 export function updateDataViews() {
-    renderMonthsList();
-    renderTransactionsList();
-    renderSummaryBox();
-}
-
-export function renderMonthsList() {
-    const container = document.getElementById('months-list');
-    if (!container) return;
-    container.innerHTML = '';
-    
-    const year = state.selectedYear;
-    
-    for (let m = 1; m <= 12; m++) {
-        const monthTrans = state.transactions.filter(t => {
-            if (t.isDeleted || t.IsDeleted) return false;
-            if (t.isFixedCost || t.IsFixedCost) return false;
-            const d = new Date(t.date || t.Date);
-            return d.getFullYear() === year && (d.getMonth() + 1) === m;
-        });
-        
-        const income = monthTrans.filter(t => t.isIncome || t.IsIncome).reduce((sum, t) => sum + parseFloat(t.amount || t.Amount || 0), 0);
-        const expenses = monthTrans.filter(t => !(t.isIncome || t.IsIncome)).reduce((sum, t) => sum + parseFloat(t.amount || t.Amount || 0), 0);
-        const surplus = income - expenses;
-        
-        const card = document.createElement('div');
-        card.className = `month-card ${state.selectedMonth === m ? 'selected' : ''}`;
-        card.addEventListener('click', () => {
-            state.selectedMonth = m;
-            updateDataViews();
-        });
-        
-        card.innerHTML = `
-            <h4>${MONTH_NAMES[m - 1]}</h4>
-            <div class="month-card-stats">
-                <span class="income">+${income.toFixed(2)} €</span>
-                <span class="expense">-${expenses.toFixed(2)} €</span>
-            </div>
-            <span class="surplus" style="color: ${surplus >= 0 ? 'var(--color-income)' : 'var(--color-expense)'}">
-                ${surplus >= 0 ? '+' : ''}${surplus.toFixed(2)} €
-            </span>
-        `;
-        container.appendChild(card);
+    if (state.activeTab === 'dashboard') {
+        renderDashboard();
+    } else if (state.activeTab === 'transactions') {
+        renderFilterableTransactions();
+    } else if (state.activeTab === 'fixed-expenses') {
+        renderFixedExpenses();
+    } else if (state.activeTab === 'loans') {
+        renderLoans();
+    } else if (state.activeTab === 'baukosten') {
+        renderBuildingCosts();
     }
 }
 
-export function renderSummaryBox() {
-    const year = state.selectedYear;
-    const month = state.selectedMonth;
+// ==================== DASHBOARD VIEW ====================
+export function renderDashboard() {
+    const year = new Date().getFullYear();
+    const month = new Date().getMonth() + 1;
     
-    const labelEl = document.getElementById('selected-month-label');
+    const labelEl = document.getElementById('dash-month-label');
     if (labelEl) labelEl.textContent = `${MONTH_NAMES[month - 1]} ${year}`;
-    
+
+    // 1. Current Month Stats
     const monthTrans = state.transactions.filter(t => {
         if (t.isDeleted || t.IsDeleted) return false;
         if (t.isFixedCost || t.IsFixedCost) return false;
         const d = new Date(t.date || t.Date);
         return d.getFullYear() === year && (d.getMonth() + 1) === month;
     });
-    
+
     const income = monthTrans.filter(t => t.isIncome || t.IsIncome).reduce((sum, t) => sum + parseFloat(t.amount || t.Amount || 0), 0);
     const expenses = monthTrans.filter(t => !(t.isIncome || t.IsIncome)).reduce((sum, t) => sum + parseFloat(t.amount || t.Amount || 0), 0);
     const surplus = income - expenses;
-    
-    const incEl = document.getElementById('stat-income');
+
+    const incEl = document.getElementById('dash-stat-income');
     if (incEl) incEl.textContent = `+${income.toFixed(2).replace('.', ',')} €`;
-    
-    const expEl = document.getElementById('stat-expenses');
+    const expEl = document.getElementById('dash-stat-expenses');
     if (expEl) expEl.textContent = `-${expenses.toFixed(2).replace('.', ',')} €`;
     
-    const surplusEl = document.getElementById('stat-surplus');
+    const surplusEl = document.getElementById('dash-stat-surplus');
     if (surplusEl) {
         surplusEl.textContent = `${surplus >= 0 ? '+' : ''}${surplus.toFixed(2).replace('.', ',')} €`;
         surplusEl.style.color = surplus >= 0 ? 'var(--color-income)' : 'var(--color-expense)';
     }
+
+    // 2. Baukosten Overview Stats
+    let totalBc = 0;
+    let paidBc = 0;
+    state.buildingCosts.forEach(item => {
+        const amt = item.amount || item.Amount || 0;
+        const paid = item.isPaid !== undefined ? item.isPaid : (item.IsPaid !== undefined ? item.IsPaid : false);
+        totalBc += amt;
+        if (paid) paidBc += amt;
+    });
+    const unpaidBc = totalBc - paidBc;
+    const bcPercent = totalBc > 0 ? (paidBc / totalBc) * 100 : 0;
+
+    const bcPaidEl = document.getElementById('dash-bc-paid');
+    if (bcPaidEl) bcPaidEl.textContent = formatCurrency(paidBc);
+    const bcUnpaidEl = document.getElementById('dash-bc-unpaid');
+    if (bcUnpaidEl) bcUnpaidEl.textContent = formatCurrency(unpaidBc);
+    const bcBarEl = document.getElementById('dash-bc-progress-bar');
+    if (bcBarEl) bcBarEl.style.width = `${bcPercent}%`;
+
+    // 3. Loans Overview Stats
+    const activeLoans = state.loans || [];
+    let totalDebt = 0;
+    activeLoans.forEach(l => {
+        updateSingleLoanCalculations(l);
+        totalDebt += parseFloat(l.remainingDebtToday || l.RemainingDebtToday || 0);
+    });
+
+    const loansCountEl = document.getElementById('dash-loans-count');
+    if (loansCountEl) loansCountEl.textContent = activeLoans.length;
+    const loansDebtEl = document.getElementById('dash-loans-debt');
+    if (loansDebtEl) loansDebtEl.textContent = formatCurrency(totalDebt);
+
+    // 4. Recent Transactions List (Last 5 items)
+    const recentContainer = document.getElementById('dash-recent-transactions');
+    if (recentContainer) {
+        recentContainer.innerHTML = '';
+        const allActive = state.transactions.filter(t => !(t.isDeleted || t.IsDeleted) && !(t.isFixedCost || t.IsFixedCost));
+        allActive.sort((a, b) => new Date(b.date || b.Date) - new Date(a.date || a.Date));
+        
+        const last5 = allActive.slice(0, 5);
+        if (last5.length === 0) {
+            recentContainer.innerHTML = `<div class="no-transactions">Keine Buchungen vorhanden.</div>`;
+        } else {
+            last5.forEach(t => {
+                const item = document.createElement('div');
+                item.className = 'transaction-item';
+                item.style.cursor = 'pointer';
+                
+                const date = new Date(t.date || t.Date);
+                const dateFormatted = date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
+                const cat = t.category || t.Category || 'Sonstiges';
+                const icon = getCategoryEmoji(cat);
+                const title = t.title || t.Title || '';
+                const amt = t.amount || t.Amount || 0;
+                const isIncome = t.isIncome !== undefined ? t.isIncome : (t.IsIncome !== undefined ? t.IsIncome : false);
+                
+                item.innerHTML = `
+                    <div class="transaction-left">
+                        <div class="category-icon">${icon}</div>
+                        <div class="transaction-details">
+                            <h5 style="margin:0;">${escapeHtml(title)}</h5>
+                            <div class="subtitle" style="font-size:10px;">${dateFormatted} • ${escapeHtml(t.assignedTo || t.AssignedTo || 'Gemeinsam')}</div>
+                        </div>
+                    </div>
+                    <div class="transaction-right">
+                        <span class="amount ${isIncome ? 'income' : 'expense'}" style="font-weight:700;">
+                            ${isIncome ? '+' : '-'}${parseFloat(amt).toFixed(2).replace('.', ',')} €
+                        </span>
+                    </div>
+                `;
+                item.addEventListener('click', () => showTransactionDetails(t.id || t.Id));
+                recentContainer.appendChild(item);
+            });
+        }
+    }
 }
 
-export function renderTransactionsList() {
-    const container = document.getElementById('transactions-list');
+// ==================== FILTERABLE TRANSACTIONS (AUSWERTUNG) ====================
+export function renderFilterableTransactions() {
+    const container = document.getElementById('filter-transactions-list');
     if (!container) return;
     container.innerHTML = '';
-    
-    const year = state.selectedYear;
-    const month = state.selectedMonth;
-    
-    const monthTrans = state.transactions.filter(t => {
+
+    const searchVal = document.getElementById('filter-search').value.toLowerCase().trim();
+    const yearVal = document.getElementById('filter-year').value;
+    const monthVal = document.getElementById('filter-month').value;
+    const catVal = document.getElementById('filter-category').value;
+    const assignVal = document.getElementById('filter-assigned').value;
+
+    const filtered = state.transactions.filter(t => {
         if (t.isDeleted || t.IsDeleted) return false;
         if (t.isFixedCost || t.IsFixedCost) return false;
+
+        // Search text
+        const title = (t.title || t.Title || '').toLowerCase();
+        const notes = (t.notes || t.Notes || '').toLowerCase();
+        if (searchVal && !title.includes(searchVal) && !notes.includes(searchVal)) return false;
+
+        // Date
         const d = new Date(t.date || t.Date);
-        return d.getFullYear() === year && (d.getMonth() + 1) === month;
+        if (yearVal !== 'All' && d.getFullYear().toString() !== yearVal) return false;
+        if (monthVal !== 'All' && (d.getMonth() + 1).toString() !== monthVal) return false;
+
+        // Category
+        const cat = t.category || t.Category || 'Sonstiges';
+        if (catVal !== 'All' && cat !== catVal) return false;
+
+        // Assigned To
+        const assigned = t.assignedTo || t.AssignedTo || 'Gemeinsam';
+        if (assignVal !== 'All' && assigned !== assignVal) return false;
+
+        return true;
     });
+
+    // Sort descending by date
+    filtered.sort((a, b) => new Date(b.date || b.Date) - new Date(a.date || a.Date));
+
+    // Calculate aggregates
+    const income = filtered.filter(t => t.isIncome || t.IsIncome).reduce((sum, t) => sum + parseFloat(t.amount || t.Amount || 0), 0);
+    const expenses = filtered.filter(t => !(t.isIncome || t.IsIncome)).reduce((sum, t) => sum + parseFloat(t.amount || t.Amount || 0), 0);
+    const surplus = income - expenses;
+
+    document.getElementById('filter-transaction-count').textContent = filtered.length;
+    document.getElementById('filter-sum-income').textContent = `+${income.toFixed(2).replace('.', ',')} €`;
+    document.getElementById('filter-sum-expense').textContent = `-${expenses.toFixed(2).replace('.', ',')} €`;
     
-    monthTrans.sort((a, b) => new Date(b.date || b.Date) - new Date(a.date || a.Date));
-    
-    const countEl = document.getElementById('transaction-count');
-    if (countEl) countEl.textContent = monthTrans.length;
-    
-    if (monthTrans.length === 0) {
-        container.innerHTML = `
-            <div class="no-transactions">
-                Keine Buchungen für diesen Monat erfasst.<br>Tippen Sie auf das "+"-Symbol, um eine neue Buchung hinzuzufügen.
-            </div>
-        `;
+    const surplusEl = document.getElementById('filter-sum-surplus');
+    surplusEl.textContent = `${surplus >= 0 ? '+' : ''}${surplus.toFixed(2).replace('.', ',')} €`;
+    surplusEl.style.color = surplus >= 0 ? 'var(--color-income)' : 'var(--color-expense)';
+
+    if (filtered.length === 0) {
+        container.innerHTML = `<div class="no-transactions">Keine Buchungen mit diesen Filterkriterien gefunden.</div>`;
         return;
     }
-    
-    monthTrans.forEach(t => {
+
+    filtered.forEach(t => {
         const item = document.createElement('div');
         item.className = 'transaction-item';
+        item.style.cursor = 'pointer';
         
-        const dateFormatted = new Date(t.date || t.Date).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+        const date = new Date(t.date || t.Date);
+        const dateFormatted = date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
         const cat = t.category || t.Category || 'Sonstiges';
         const icon = getCategoryEmoji(cat);
         const title = t.title || t.Title || '';
-        const assignedTo = t.assignedTo || t.AssignedTo || 'Gemeinsam';
-        const amount = t.amount || t.Amount || 0;
+        const amt = t.amount || t.Amount || 0;
         const isIncome = t.isIncome !== undefined ? t.isIncome : (t.IsIncome !== undefined ? t.IsIncome : false);
+
+        item.innerHTML = `
+            <div class="transaction-left">
+                <div class="category-icon">${icon}</div>
+                <div class="transaction-details">
+                    <h5 style="margin:0;">${escapeHtml(title)}</h5>
+                    <div class="subtitle" style="font-size:10px;">${dateFormatted} • ${escapeHtml(t.assignedTo || t.AssignedTo || 'Gemeinsam')}</div>
+                </div>
+            </div>
+            <div class="transaction-right">
+                <span class="amount ${isIncome ? 'income' : 'expense'}" style="font-weight:700;">
+                    ${isIncome ? '+' : '-'}${parseFloat(amt).toFixed(2).replace('.', ',')} €
+                </span>
+            </div>
+        `;
+        item.addEventListener('click', () => showTransactionDetails(t.id || t.Id));
+        container.appendChild(item);
+    });
+}
+
+// ==================== FIXED EXPENSES (FIXKOSTEN) ====================
+export function renderFixedExpenses() {
+    const container = document.getElementById('fixed-expenses-list');
+    if (!container) return;
+    container.innerHTML = '';
+
+    const list = state.fixedExpenses || [];
+
+    // Sort by day of month
+    list.sort((a, b) => parseInt(a.dayOfMonth || a.DayOfMonth || 1) - parseInt(b.dayOfMonth || b.DayOfMonth || 1));
+
+    // Calculate aggregates
+    const income = list.filter(f => f.isIncome || f.IsIncome).reduce((sum, f) => sum + parseFloat(f.amount || f.Amount || 0), 0);
+    const expenses = list.filter(f => !(f.isIncome || f.IsIncome)).reduce((sum, f) => sum + parseFloat(f.amount || f.Amount || 0), 0);
+    const surplus = income - expenses;
+
+    document.getElementById('fixed-expenses-count').textContent = list.length;
+    document.getElementById('fixed-total-income').textContent = `+${income.toFixed(2).replace('.', ',')} €`;
+    document.getElementById('fixed-total-expenses').textContent = `-${expenses.toFixed(2).replace('.', ',')} €`;
+
+    const surplusEl = document.getElementById('fixed-total-surplus');
+    surplusEl.textContent = `${surplus >= 0 ? '+' : ''}${surplus.toFixed(2).replace('.', ',')} €`;
+    surplusEl.style.color = surplus >= 0 ? 'var(--color-income)' : 'var(--color-expense)';
+
+    if (list.length === 0) {
+        container.innerHTML = `<div class="no-transactions">Keine Fixkosten-Buchungen angelegt.</div>`;
+        return;
+    }
+
+    list.forEach(f => {
+        const item = document.createElement('div');
+        item.className = 'transaction-item';
+
+        const cat = f.category || f.Category || 'Sonstiges';
+        const icon = getCategoryEmoji(cat);
+        const title = f.title || f.Title || '';
+        const amt = f.amount || f.Amount || 0;
+        const isIncome = f.isIncome !== undefined ? f.isIncome : (f.IsIncome !== undefined ? f.IsIncome : false);
+        const day = f.dayOfMonth || f.DayOfMonth || 1;
+        const assigned = f.assignedTo || f.AssignedTo || 'Gemeinsam';
         
         item.innerHTML = `
             <div class="transaction-left">
                 <div class="category-icon">${icon}</div>
                 <div class="transaction-details">
-                    <h5>${escapeHtml(title)}</h5>
-                    <div class="subtitle">
-                        <span>${dateFormatted}</span>
-                        <span class="subtitle-badge">${escapeHtml(assignedTo)}</span>
-                    </div>
+                    <h5 style="margin:0;">${escapeHtml(title)}</h5>
+                    <div class="subtitle" style="font-size:10px;">Jeden ${day}. des Monats • ${escapeHtml(assigned)}</div>
                 </div>
             </div>
             <div class="transaction-right">
-                <span class="amount ${isIncome ? 'income' : 'expense'}">
-                    ${isIncome ? '+' : '-'}${parseFloat(amount).toFixed(2).replace('.', ',')} €
+                <span class="amount ${isIncome ? 'income' : 'expense'}" style="font-weight:700;">
+                    ${isIncome ? '+' : '-'}${parseFloat(amt).toFixed(2).replace('.', ',')} €
                 </span>
                 <div class="transaction-actions">
-                    <button class="action-btn edit" data-id="${t.id || t.Id}">
+                    <button class="action-btn edit-fixed" data-id="${f.id || f.Id}">
                         <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
                             <path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
                         </svg>
                     </button>
-                    <button class="action-btn delete" data-id="${t.id || t.Id}">
+                    <button class="action-btn delete-fixed" data-id="${f.id || f.Id}">
                         <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
                             <polyline points="3 6 5 6 21 6"></polyline>
                             <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
@@ -149,18 +295,276 @@ export function renderTransactionsList() {
                 </div>
             </div>
         `;
-        
-        item.querySelector('.edit').addEventListener('click', (e) => {
+
+        item.querySelector('.edit-fixed').addEventListener('click', (e) => {
             e.stopPropagation();
-            openTransactionDialog(t.id || t.Id);
+            openFixedExpenseDialog(f.id || f.Id);
         });
-        item.querySelector('.delete').addEventListener('click', (e) => {
+
+        item.querySelector('.delete-fixed').addEventListener('click', (e) => {
             e.stopPropagation();
-            confirmDeleteTransaction(t.id || t.Id);
+            confirmDeleteFixedExpense(f.id || f.Id);
         });
-        
+
         container.appendChild(item);
     });
+}
+
+// ==================== LOANS (KREDITE) ====================
+export function renderLoans() {
+    const select = document.getElementById('loan-selector');
+    const statsContainer = document.getElementById('loan-stats-container');
+    const stContainer = document.getElementById('loan-sondertilgung-container');
+    const scheduleContainer = document.getElementById('loan-schedule-container');
+    const emptyView = document.getElementById('loans-empty-view');
+
+    if (!select) return;
+
+    const list = state.loans || [];
+
+    if (list.length === 0) {
+        select.style.display = 'none';
+        if (statsContainer) statsContainer.style.display = 'none';
+        if (stContainer) stContainer.style.display = 'none';
+        if (scheduleContainer) scheduleContainer.style.display = 'none';
+        if (emptyView) emptyView.style.display = 'block';
+        return;
+    }
+
+    select.style.display = 'block';
+    if (emptyView) emptyView.style.display = 'none';
+
+    // Populate dropdown if needed (only if count changed or empty)
+    const currentVal = select.value;
+    select.innerHTML = '';
+    list.forEach((loan, idx) => {
+        const opt = document.createElement('option');
+        opt.value = loan.id || loan.Id;
+        opt.textContent = loan.name || loan.Name;
+        select.appendChild(opt);
+    });
+
+    if (currentVal && list.some(l => (l.id || l.Id) === currentVal)) {
+        select.value = currentVal;
+    } else {
+        select.value = list[0].id || list[0].Id;
+    }
+
+    state.selectedLoanId = select.value;
+
+    const selectedLoan = list.find(l => (l.id || l.Id) === state.selectedLoanId);
+    if (!selectedLoan) return;
+
+    // Run VM-aligned math first
+    updateSingleLoanCalculations(selectedLoan);
+
+    // 1. Render Stats
+    if (statsContainer) {
+        statsContainer.style.display = 'block';
+        const typeLabel = (selectedLoan.loanType || selectedLoan.LoanType) === 'Hausbaukredit' ? 'Hausbaukredit' : 'Ratenkredit';
+        const originalAmount = parseFloat(selectedLoan.loanAmount || selectedLoan.LoanAmount || 0);
+        const remainingDebt = parseFloat(selectedLoan.remainingDebtToday || selectedLoan.RemainingDebtToday || 0);
+        const monthlyRate = parseFloat(selectedLoan.monthlyRate || selectedLoan.MonthlyRate || 0);
+        const interestRate = parseFloat(selectedLoan.interestRate || selectedLoan.InterestRate || 0);
+        const remainingTerm = selectedLoan.remainingTermText || selectedLoan.RemainingTermText || '-';
+        const totalInterestPaid = parseFloat(selectedLoan.totalInterestPaidEuro || selectedLoan.TotalInterestPaidEuro || 0);
+        const totalInterestFuture = parseFloat(selectedLoan.totalInterestFutureEuro || selectedLoan.TotalInterestFutureEuro || 0);
+        const totalInterest = totalInterestPaid + totalInterestFuture;
+
+        statsContainer.innerHTML = `
+            <div class="summary-card" style="margin-bottom:16px;">
+                <div class="summary-row header">
+                    <h3>${escapeHtml(selectedLoan.name || selectedLoan.Name)}</h3>
+                    <span class="badge" style="background:rgba(99,102,241,0.15); color:var(--accent); font-weight:700;">${typeLabel}</span>
+                </div>
+                <div class="summary-details" style="grid-template-columns: repeat(2, 1fr); gap:12px 8px;">
+                    <div class="stat-box">
+                        <span class="label">Kreditsumme</span>
+                        <span class="value" style="font-size:16px;">${formatCurrency(originalAmount)}</span>
+                    </div>
+                    <div class="stat-box">
+                        <span class="label">Restschuld heute</span>
+                        <span class="value expense" style="font-size:16px;">${formatCurrency(remainingDebt)}</span>
+                    </div>
+                    <div class="stat-box">
+                        <span class="label">Zins / Monatliche Rate</span>
+                        <span class="value" style="font-size:14px; font-weight:500;">${interestRate.toFixed(2)}% / ${monthlyRate.toFixed(2)} €</span>
+                    </div>
+                    <div class="stat-box">
+                        <span class="label">Restlaufzeit</span>
+                        <span class="value income" style="font-size:14px; font-weight:600;">${remainingTerm}</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="summary-card" style="background:rgba(255,255,255,0.02); border-color:rgba(255,255,255,0.05);">
+                <h4 style="margin:0 0 10px 0; font-size:14px;">Zinsauswertung (€)</h4>
+                <div class="summary-details">
+                    <div class="stat-box">
+                        <span class="label">Gezahlte Zinsen</span>
+                        <span class="value expense" style="font-size:15px;">${formatCurrency(totalInterestPaid)}</span>
+                    </div>
+                    <div class="stat-box">
+                        <span class="label">Zukünftige Zinsen</span>
+                        <span class="value" style="font-size:15px; color:#fbbf24;">${formatCurrency(totalInterestFuture)}</span>
+                    </div>
+                </div>
+                <div class="summary-surplus" style="margin-top:10px; border-top:1px solid var(--border-color); padding-top:8px;">
+                    <span class="label">Zinsen Gesamt:</span>
+                    <span class="value font-bold" style="font-size:15px;">${formatCurrency(totalInterest)}</span>
+                </div>
+            </div>
+        `;
+    }
+
+    // 2. Render Sondertilgungen List
+    if (stContainer) {
+        stContainer.style.display = 'block';
+        const stList = document.getElementById('loan-sondertilgungen-list');
+        if (stList) {
+            stList.innerHTML = '';
+            const items = selectedLoan.oneTimeSondertilgungen || selectedLoan.OneTimeSondertilgungen || [];
+            
+            if (items.length === 0) {
+                stList.innerHTML = `<div style="font-size:12px; color:var(--text-secondary); text-align:center;">Keine Sondertilgungen für diesen Kredit erfasst.</div>`;
+            } else {
+                items.forEach((item, idx) => {
+                    const row = document.createElement('div');
+                    row.style.display = 'flex';
+                    row.style.justify = 'space-between';
+                    row.style.alignItems = 'center';
+                    row.style.padding = '6px 0';
+                    
+                    const year = item.year !== undefined ? item.year : item.Year;
+                    const amount = parseFloat(item.amount !== undefined ? item.amount : item.Amount || 0);
+                    const applied = item.isApplied !== undefined ? item.isApplied : (item.IsApplied !== undefined ? item.IsApplied : true);
+                    
+                    row.innerHTML = `
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            <input type="checkbox" class="st-toggle-checkbox" data-index="${idx}" ${applied ? 'checked' : ''}>
+                            <span style="font-size:13px; font-weight:500;">Jahr ${year}</span>
+                        </div>
+                        <span style="font-size:13px; font-weight:700; color:var(--accent);">${formatCurrency(amount)}</span>
+                    `;
+                    // Bind checkbox change
+                    row.querySelector('.st-toggle-checkbox').addEventListener('change', (e) => {
+                        const checked = e.target.checked;
+                        if (item.isApplied !== undefined) item.isApplied = checked;
+                        if (item.IsApplied !== undefined) item.IsApplied = checked;
+                        
+                        // Save and reload
+                        if (state.mode === 'google') {
+                            import('./app.js').then(app => app.saveLoansToGoogle());
+                        } else {
+                            saveLoansToLocal();
+                            renderLoans();
+                        }
+                    });
+                    
+                    stList.appendChild(row);
+                });
+            }
+        }
+    }
+
+    // 3. Render Amortization schedule yearly rows
+    if (scheduleContainer) {
+        scheduleContainer.style.display = 'block';
+        const tbody = document.getElementById('loan-schedule-tbody');
+        if (tbody) {
+            tbody.innerHTML = '';
+            
+            const sim = runAnnuitySimulation(selectedLoan, true);
+            sim.yearlyRows.forEach(row => {
+                const tr = document.createElement('tr');
+                const p = row.period || row.Period || '';
+                const start = parseFloat(row.startBalance || row.StartBalance || 0);
+                const interest = parseFloat(row.interestPaid || row.InterestPaid || 0);
+                const repayment = parseFloat(row.repaymentPaid || row.RepaymentPaid || 0);
+                const st = parseFloat(row.sondertilgungPaid || row.SondertilgungPaid || 0);
+                const end = parseFloat(row.endBalance || row.EndBalance || 0);
+
+                tr.innerHTML = `
+                    <td style="padding: 10px 12px; font-weight:600;">${p}</td>
+                    <td style="padding: 10px 12px;">${formatCurrency(start)}</td>
+                    <td style="padding: 10px 12px; color:var(--color-expense);">${formatCurrency(interest)}</td>
+                    <td style="padding: 10px 12px; color:var(--color-income);">${formatCurrency(repayment)}</td>
+                    <td style="padding: 10px 12px; color:var(--accent); font-weight:600;">${st > 0 ? formatCurrency(st) : '-'}</td>
+                    <td style="padding: 10px 12px; font-weight:600;">${formatCurrency(end)}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+    }
+}
+
+// ==================== TRANSACTION DETAILS OVERLAY ====================
+export function showTransactionDetails(id) {
+    state.selectedTransactionId = id;
+    const t = state.transactions.find(item => (item.id || item.Id) === id);
+    if (!t) return;
+
+    const title = t.title || t.Title || '';
+    const amt = t.amount || t.Amount || 0;
+    const isIncome = t.isIncome !== undefined ? t.isIncome : (t.IsIncome !== undefined ? t.IsIncome : false);
+    const cat = t.category || t.Category || 'Sonstiges';
+    const assigned = t.assignedTo || t.AssignedTo || 'Gemeinsam';
+    const notes = t.notes || t.Notes || '';
+
+    // Date formatting (Wochentag, DD.MM.YYYY)
+    const dateObj = new Date(t.date || t.Date);
+    const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+    const dateFormatted = dateObj.toLocaleDateString('de-DE', options);
+
+    document.getElementById('detail-title').textContent = title;
+    
+    const amountEl = document.getElementById('detail-amount');
+    amountEl.textContent = `${isIncome ? '+' : '-'}${parseFloat(amt).toFixed(2).replace('.', ',')} €`;
+    amountEl.className = `amount ${isIncome ? 'income' : 'expense'}`;
+
+    document.getElementById('detail-category-icon').textContent = getCategoryEmoji(cat);
+    document.getElementById('detail-date').textContent = dateFormatted;
+    document.getElementById('detail-category').textContent = cat;
+    document.getElementById('detail-assigned').textContent = assigned;
+    
+    const notesEl = document.getElementById('detail-notes');
+    if (notes) {
+        notesEl.textContent = notes;
+        notesEl.style.fontStyle = 'normal';
+        notesEl.style.color = 'var(--text-secondary)';
+    } else {
+        notesEl.textContent = 'Keine Notizen erfasst.';
+        notesEl.style.fontStyle = 'italic';
+        notesEl.style.color = 'rgba(255,255,255,0.2)';
+    }
+
+    // Set buttons bindings
+    const btnDel = document.getElementById('detail-btn-delete');
+    btnDel.onclick = () => {
+        hideOverlay('transaction-detail-dialog');
+        confirmDeleteTransaction(id);
+    };
+
+    const btnEdit = document.getElementById('detail-btn-edit');
+    btnEdit.onclick = () => {
+        hideOverlay('transaction-detail-dialog');
+        openTransactionDialog(id);
+    };
+
+    showOverlay('transaction-detail-dialog');
+}
+
+// ==================== ORIGINAL / COMPATIBLE RENDERING ====================
+export function renderMonthsList() {
+    // Left for compatibility if invoked in C# context, otherwise bypassed by activeTab
+}
+
+export function renderSummaryBox() {
+    // Left for compatibility if invoked in C# context, otherwise bypassed by activeTab
+}
+
+export function renderTransactionsList() {
+    // Left for compatibility if invoked in C# context, otherwise bypassed by activeTab
 }
 
 export function renderBuildingCosts() {
@@ -189,10 +593,14 @@ export function renderBuildingCosts() {
     const unpaidAmount = totalAmount - paidAmount;
     const progressPercent = totalAmount > 0 ? (paidAmount / totalAmount) * 100 : 0;
     
-    document.getElementById('baukosten-total').textContent = formatCurrency(totalAmount);
-    document.getElementById('baukosten-paid').textContent = `+${formatCurrency(paidAmount)}`;
-    document.getElementById('baukosten-unpaid').textContent = `-${formatCurrency(unpaidAmount)}`;
-    document.getElementById('baukosten-progress-bar').style.width = `${progressPercent}%`;
+    const totalEl = document.getElementById('baukosten-total');
+    if (totalEl) totalEl.textContent = formatCurrency(totalAmount);
+    const paidEl = document.getElementById('baukosten-paid');
+    if (paidEl) paidEl.textContent = `+${formatCurrency(paidAmount)}`;
+    const unpaidEl = document.getElementById('baukosten-unpaid');
+    if (unpaidEl) unpaidEl.textContent = `-${formatCurrency(unpaidAmount)}`;
+    const barEl = document.getElementById('baukosten-progress-bar');
+    if (barEl) barEl.style.width = `${progressPercent}%`;
     
     const groups = {};
     state.buildingCosts.forEach(item => {
@@ -278,28 +686,50 @@ export function renderBuildingCosts() {
     }
 }
 
-// Dynamically populates Category dropdown in the Dialog
 export function populateCategoryDropdown() {
     const select = document.getElementById('field-category');
-    if (!select) return;
+    const selectFixed = document.getElementById('fixed-field-category');
+    const selectFilter = document.getElementById('filter-category');
     
-    // Save current selected value
-    const curVal = select.value;
+    const curVal = select ? select.value : '';
+    const curFixedVal = selectFixed ? selectFixed.value : '';
     
     if (state.budgetCategories && state.budgetCategories.length > 0) {
-        select.innerHTML = '';
-        state.budgetCategories.forEach(cat => {
-            const opt = document.createElement('option');
+        const optionListHtml = state.budgetCategories.map(cat => {
             const name = cat.name || cat.Name;
-            opt.value = name;
-            opt.textContent = name;
-            select.appendChild(opt);
-        });
-        // Select old or fallback
-        if (state.budgetCategories.some(c => (c.name || c.Name) === curVal)) {
-            select.value = curVal;
-        } else {
-            select.value = state.budgetCategories[0].name || state.budgetCategories[0].Name;
+            return `<option value="${name}">${name}</option>`;
+        }).join('');
+        
+        if (select) {
+            select.innerHTML = optionListHtml;
+            if (state.budgetCategories.some(c => (c.name || c.Name) === curVal)) {
+                select.value = curVal;
+            } else {
+                select.value = state.budgetCategories[0].name || state.budgetCategories[0].Name;
+            }
+        }
+        
+        if (selectFixed) {
+            selectFixed.innerHTML = optionListHtml;
+            if (state.budgetCategories.some(c => (c.name || c.Name) === curFixedVal)) {
+                selectFixed.value = curFixedVal;
+            } else {
+                selectFixed.value = state.budgetCategories[0].name || state.budgetCategories[0].Name;
+            }
+        }
+
+        if (selectFilter) {
+            selectFilter.innerHTML = '<option value="All">Alle Kategorien</option>' + optionListHtml;
         }
     }
+}
+
+function showOverlay(overlayId) {
+    const overlay = document.getElementById(overlayId);
+    if (overlay) overlay.classList.add('active');
+}
+
+function hideOverlay(overlayId) {
+    const overlay = document.getElementById(overlayId);
+    if (overlay) overlay.classList.remove('active');
 }
