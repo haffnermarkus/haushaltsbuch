@@ -1,7 +1,7 @@
 // Service Worker für Haushaltsbuch PWA
 // Cacht App-Shell für Offline-Nutzung
 
-const CACHE_NAME = 'haushaltsbuch-v5';
+const CACHE_NAME = 'haushaltsbuch-v6';
 
 // Dateien die immer gecacht werden (App Shell)
 const APP_SHELL = [

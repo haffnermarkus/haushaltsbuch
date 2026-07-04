@@ -228,7 +228,7 @@ function saveTransactionsToLocal() {
 function createTokenClient(callback) {
     return google.accounts.oauth2.initTokenClient({
         client_id: state.clientId,
-        scope: 'https://www.googleapis.com/auth/drive.file',
+        scope: 'https://www.googleapis.com/auth/drive',
         callback: callback,
     });
 }
