@@ -344,7 +344,7 @@ function mergeTransactions(local, remote) {
     const map = new Map();
 
     function mergeIntoMap(t) {
-        if (!t.id) return;
+        if (!t || !t.id) return;
         
         if (map.has(t.id)) {
             const existing = map.get(t.id);
@@ -368,8 +368,8 @@ function mergeTransactions(local, remote) {
         }
     }
 
-    local.forEach(t => mergeIntoMap(t));
-    remote.forEach(t => mergeIntoMap(t));
+    if (Array.isArray(local)) local.forEach(t => mergeIntoMap(t));
+    if (Array.isArray(remote)) remote.forEach(t => mergeIntoMap(t));
 
     return Array.from(map.values());
 }
@@ -382,6 +382,17 @@ async function loadTransactionsFromGoogle() {
         const downloadUrl = `https://www.googleapis.com/drive/v3/files/${state.fileId}?alt=media`;
         let response = await apiCall(downloadUrl);
         if (!response) return;
+        
+        if (!response.ok) {
+            let errMsg = `HTTP ${response.status}`;
+            try {
+                const errData = await response.json();
+                if (errData.error && errData.error.message) {
+                    errMsg = errData.error.message;
+                }
+            } catch (e) {}
+            throw new Error(errMsg);
+        }
         
         let data = await response.json();
         state.transactions = mergeTransactions(state.transactions || [], data || []);
@@ -445,8 +456,19 @@ async function saveTransactionsToGoogle() {
         const downloadUrl = `https://www.googleapis.com/drive/v3/files/${state.fileId}?alt=media`;
         let downloadResponse = await apiCall(downloadUrl);
         let remoteTransactions = [];
-        if (downloadResponse && downloadResponse.ok) {
-            remoteTransactions = await downloadResponse.json() || [];
+        if (downloadResponse) {
+            if (downloadResponse.ok) {
+                remoteTransactions = await downloadResponse.json() || [];
+            } else {
+                let errMsg = `HTTP ${downloadResponse.status}`;
+                try {
+                    const errData = await downloadResponse.json();
+                    if (errData.error && errData.error.message) {
+                        errMsg = errData.error.message;
+                    }
+                } catch (e) {}
+                throw new Error(`Download-Fehler vor dem Mergen: ${errMsg}`);
+            }
         }
 
         // 2. Merge local state.transactions with remoteTransactions
@@ -463,11 +485,20 @@ async function saveTransactionsToGoogle() {
             body: JSON.stringify(state.transactions)
         });
         
-        if (response && response.ok) {
-            updateSyncStatusIndicator('connected', 'Google Drive');
-            updateDataViews();
-        } else {
-            throw new Error("Update call failed");
+        if (response) {
+            if (response.ok) {
+                updateSyncStatusIndicator('connected', 'Google Drive');
+                updateDataViews();
+            } else {
+                let errMsg = `HTTP ${response.status}`;
+                try {
+                    const errData = await response.json();
+                    if (errData.error && errData.error.message) {
+                        errMsg = errData.error.message;
+                    }
+                } catch (e) {}
+                throw new Error(`Upload-Fehler: ${errMsg}`);
+            }
         }
     } catch (err) {
         updateSyncStatusIndicator('local', 'Fehler');
