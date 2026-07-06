@@ -112,15 +112,29 @@ export async function onAuthSuccess(accessToken, existingFileId) {
         localStorage.setItem('gdrive_loans_file_id', loansId);
     }
 
-    // 3. Suche und lade Szenarieneinstellungen (Kategorien)
+    // 3. Suche und lade Szenarieneinstellungen (Kategorien & Partnernamen)
     let settingsId = await searchFile('scenario_settings.json');
     if (settingsId) {
         let settings = await downloadFileContent(settingsId);
-        if (settings && (settings.BudgetCategories || settings.budgetCategories)) {
-            state.budgetCategories = settings.BudgetCategories || settings.budgetCategories;
-            console.log('[Auth] Dynamische Kategorien geladen:', state.budgetCategories);
-            // Aktualisiere das Dropdown im HTML falls geladen
-            import('./ui.js').then(ui => ui.populateCategoryDropdown());
+        if (settings) {
+            if (settings.BudgetCategories || settings.budgetCategories) {
+                state.budgetCategories = settings.BudgetCategories || settings.budgetCategories;
+                console.log('[Auth] Dynamische Kategorien geladen:', state.budgetCategories);
+            }
+            if (settings.Partner1Name || settings.partner1Name) {
+                state.partner1Name = settings.Partner1Name || settings.partner1Name;
+            }
+            if (settings.Partner2Name || settings.partner2Name) {
+                state.partner2Name = settings.Partner2Name || settings.partner2Name;
+            }
+            console.log('[Auth] Partnernamen geladen:', state.partner1Name, 'und', state.partner2Name);
+            
+            // Aktualisiere das Dropdown und die Views im HTML falls geladen
+            import('./ui.js').then(ui => {
+                ui.populateCategoryDropdown();
+                ui.updatePartnerDropdowns();
+                ui.updateDataViews();
+            });
         }
     }
 }

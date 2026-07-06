@@ -38,7 +38,8 @@ import {
     renderLoans,
     renderFixedExpenses,
     renderFilterableTransactions,
-    showTransactionDetails
+    showTransactionDetails,
+    updatePartnerDropdowns
 } from './ui.js';
 
 export { 
@@ -292,6 +293,27 @@ function initUI() {
     
     // Populate dropdown dynamically in case it's ready
     populateCategoryDropdown();
+    updatePartnerDropdowns();
+
+    // Prevent mobile keyboard from scrolling/shifting the whole viewport (pushed-up menu bug)
+    const handleViewportReset = () => {
+        if (window.scrollY !== 0 || window.scrollX !== 0) {
+            window.scrollTo(0, 0);
+        }
+    };
+    window.addEventListener('scroll', handleViewportReset, { passive: true });
+
+    // Also reset on input focus/blur to be extra safe on different browsers
+    document.addEventListener('focusin', (e) => {
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') {
+            setTimeout(handleViewportReset, 50);
+        }
+    });
+    document.addEventListener('focusout', (e) => {
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') {
+            setTimeout(handleViewportReset, 50);
+        }
+    });
 }
 
 // ==================== NAVIGATION SCREENS ====================

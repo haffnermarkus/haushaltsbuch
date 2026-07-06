@@ -8,6 +8,41 @@ import {
     updateSingleLoanCalculations 
 } from './state.js';
 
+export function getAssignedDisplayName(assigned) {
+    if (assigned === 'Partner 1') return state.partner1Name || 'Markus';
+    if (assigned === 'Partner 2') return state.partner2Name || 'Maren';
+    return assigned || 'Gemeinsam';
+}
+
+export function updatePartnerDropdowns() {
+    const p1Name = state.partner1Name || 'Markus';
+    const p2Name = state.partner2Name || 'Maren';
+
+    const filterSelect = document.getElementById('filter-assigned');
+    if (filterSelect) {
+        const p1Opt = filterSelect.querySelector('option[value="Partner 1"]');
+        if (p1Opt) p1Opt.textContent = p1Name;
+        const p2Opt = filterSelect.querySelector('option[value="Partner 2"]');
+        if (p2Opt) p2Opt.textContent = p2Name;
+    }
+
+    const fieldSelect = document.getElementById('field-assigned');
+    if (fieldSelect) {
+        const p1Opt = fieldSelect.querySelector('option[value="Partner 1"]');
+        if (p1Opt) p1Opt.textContent = p1Name;
+        const p2Opt = fieldSelect.querySelector('option[value="Partner 2"]');
+        if (p2Opt) p2Opt.textContent = p2Name;
+    }
+
+    const fixedSelect = document.getElementById('fixed-field-assigned');
+    if (fixedSelect) {
+        const p1Opt = fixedSelect.querySelector('option[value="Partner 1"]');
+        if (p1Opt) p1Opt.textContent = p1Name;
+        const p2Opt = fixedSelect.querySelector('option[value="Partner 2"]');
+        if (p2Opt) p2Opt.textContent = p2Name;
+    }
+}
+
 import { 
     openTransactionDialog, 
     confirmDeleteTransaction,
@@ -121,7 +156,7 @@ export function renderDashboard() {
                         <div class="category-icon">${icon}</div>
                         <div class="transaction-details">
                             <h5 style="margin:0;">${escapeHtml(title)}</h5>
-                            <div class="subtitle" style="font-size:10px;">${dateFormatted} • ${escapeHtml(t.assignedTo || t.AssignedTo || 'Gemeinsam')}</div>
+                            <div class="subtitle" style="font-size:10px;">${dateFormatted} • ${escapeHtml(getAssignedDisplayName(t.assignedTo || t.AssignedTo))}</div>
                         </div>
                     </div>
                     <div class="transaction-right">
@@ -213,7 +248,7 @@ export function renderFilterableTransactions() {
                 <div class="category-icon">${icon}</div>
                 <div class="transaction-details">
                     <h5 style="margin:0;">${escapeHtml(title)}</h5>
-                    <div class="subtitle" style="font-size:10px;">${dateFormatted} • ${escapeHtml(t.assignedTo || t.AssignedTo || 'Gemeinsam')}</div>
+                    <div class="subtitle" style="font-size:10px;">${dateFormatted} • ${escapeHtml(getAssignedDisplayName(t.assignedTo || t.AssignedTo))}</div>
                 </div>
             </div>
             <div class="transaction-right">
@@ -266,7 +301,7 @@ export function renderFixedExpenses() {
         const amt = f.amount || f.Amount || 0;
         const isIncome = f.isIncome !== undefined ? f.isIncome : (f.IsIncome !== undefined ? f.IsIncome : false);
         const day = f.dayOfMonth || f.DayOfMonth || 1;
-        const assigned = f.assignedTo || f.AssignedTo || 'Gemeinsam';
+        const assigned = getAssignedDisplayName(f.assignedTo || f.AssignedTo);
         
         item.innerHTML = `
             <div class="transaction-left">
@@ -508,7 +543,7 @@ export function showTransactionDetails(id) {
     const amt = t.amount || t.Amount || 0;
     const isIncome = t.isIncome !== undefined ? t.isIncome : (t.IsIncome !== undefined ? t.IsIncome : false);
     const cat = t.category || t.Category || 'Sonstiges';
-    const assigned = t.assignedTo || t.AssignedTo || 'Gemeinsam';
+    const assigned = getAssignedDisplayName(t.assignedTo || t.AssignedTo);
     const notes = t.notes || t.Notes || '';
 
     // Date formatting (Wochentag, DD.MM.YYYY)
@@ -629,7 +664,8 @@ export function renderBuildingCosts() {
             const name = item.name || item.Name || '';
             const amt = item.amount || item.Amount || 0;
             const paid = item.isPaid !== undefined ? item.isPaid : (item.IsPaid !== undefined ? item.IsPaid : false);
-            const paidBy = item.paidBy || item.PaidBy || '';
+            const paidByRaw = item.paidBy || item.PaidBy || '';
+            const paidBy = paidByRaw ? getAssignedDisplayName(paidByRaw) : '';
             const paymentDate = item.paymentDate || item.PaymentDate || null;
             
             const statusClass = paid ? 'paid' : 'unpaid';
