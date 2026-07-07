@@ -760,201 +760,204 @@ async function saveLoansToGoogle() {
     } catch (err) {
         updateSyncStatusIndicator('local', 'Fehler');
         console.error("Loans Sync Error:", err);
-        // ==================== FIXED EXPENSES CRUD HANDLERS ====================
-        function openFixedExpenseDialog(id = null) {
-            state.editingFixedExpenseId = id;
+    }
+}
 
-            document.getElementById('fixed-field-title').value = '';
-            document.getElementById('fixed-field-amount').value = '';
-            document.getElementById('fixed-field-type').value = 'expense';
-            document.getElementById('fixed-field-category').value = 'Sonstiges';
-            document.getElementById('fixed-field-day').value = '1';
-            document.getElementById('fixed-field-assigned').value = 'Gemeinsam';
-            document.getElementById('fixed-field-notes').value = '';
-            document.getElementById('fixed-field-startdate').value = '2026-07-01';
+// ==================== FIXED EXPENSES CRUD HANDLERS ====================
+function openFixedExpenseDialog(id = null) {
+    state.editingFixedExpenseId = id;
 
-            if (id) {
-                document.getElementById('fixed-dialog-title').textContent = "Fixkosten bearbeiten";
-                const fe = state.fixedExpenses.find(f => (f.id || f.Id) === id);
-                if (fe) {
-                    document.getElementById('fixed-field-title').value = fe.title || fe.Title || '';
-                    document.getElementById('fixed-field-amount').value = Math.abs(fe.amount || fe.Amount || 0);
-                    document.getElementById('fixed-field-type').value = (fe.isIncome || fe.IsIncome) ? 'income' : 'expense';
-                    document.getElementById('fixed-field-category').value = fe.category || fe.Category || 'Sonstiges';
-                    document.getElementById('fixed-field-day').value = fe.dayOfMonth || fe.DayOfMonth || 1;
-                    document.getElementById('fixed-field-assigned').value = fe.assignedTo || fe.AssignedTo || 'Gemeinsam';
-                    document.getElementById('fixed-field-notes').value = fe.notes || fe.Notes || '';
+    document.getElementById('fixed-field-title').value = '';
+    document.getElementById('fixed-field-amount').value = '';
+    document.getElementById('fixed-field-type').value = 'expense';
+    document.getElementById('fixed-field-category').value = 'Sonstiges';
+    document.getElementById('fixed-field-day').value = '1';
+    document.getElementById('fixed-field-assigned').value = 'Gemeinsam';
+    document.getElementById('fixed-field-notes').value = '';
+    document.getElementById('fixed-field-startdate').value = '2026-07-01';
 
-                    let startDateVal = '2026-07-01';
-                    const rawStart = fe.startDate || fe.StartDate;
-                    if (rawStart) {
-                        const d = new Date(rawStart);
-                        if (!isNaN(d.getTime())) {
-                            const yyyy = d.getFullYear();
-                            const mm = String(d.getMonth() + 1).padStart(2, '0');
-                            const dd = String(d.getDate()).padStart(2, '0');
-                            startDateVal = `${yyyy}-${mm}-${dd}`;
-                        }
-                    }
-                    document.getElementById('fixed-field-startdate').value = startDateVal;
-                }
-            } else {
-                document.getElementById('fixed-dialog-title').textContent = "Neue Fixkosten";
-            }
+    if (id) {
+        document.getElementById('fixed-dialog-title').textContent = "Fixkosten bearbeiten";
+        const fe = state.fixedExpenses.find(f => (f.id || f.Id) === id);
+        if (fe) {
+            document.getElementById('fixed-field-title').value = fe.title || fe.Title || '';
+            document.getElementById('fixed-field-amount').value = Math.abs(fe.amount || fe.Amount || 0);
+            document.getElementById('fixed-field-type').value = (fe.isIncome || fe.IsIncome) ? 'income' : 'expense';
+            document.getElementById('fixed-field-category').value = fe.category || fe.Category || 'Sonstiges';
+            document.getElementById('fixed-field-day').value = fe.dayOfMonth || fe.DayOfMonth || 1;
+            document.getElementById('fixed-field-assigned').value = fe.assignedTo || fe.AssignedTo || 'Gemeinsam';
+            document.getElementById('fixed-field-notes').value = fe.notes || fe.Notes || '';
 
-            showOverlay('fixed-expense-dialog');
-        }
-
-        function closeFixedExpenseDialog() {
-            hideOverlay('fixed-expense-dialog');
-            state.editingFixedExpenseId = null;
-        }
-
-        function handleFixedExpenseSave(e) {
-            e.preventDefault();
-
-            const title = document.getElementById('fixed-field-title').value.trim();
-            const amount = parseFloat(document.getElementById('fixed-field-amount').value);
-            const type = document.getElementById('fixed-field-type').value;
-            const category = document.getElementById('fixed-field-category').value;
-            const dayOfMonth = parseInt(document.getElementById('fixed-field-day').value) || 1;
-            const assignedTo = document.getElementById('fixed-field-assigned').value;
-            const notes = document.getElementById('fixed-field-notes').value.trim();
-            const startDateInput = document.getElementById('fixed-field-startdate').value;
-
-            if (!title || isNaN(amount) || amount <= 0) {
-                alert("Bitte füllen Sie alle Pflichtfelder korrekt aus.");
-                return;
-            }
-
-            const isIncome = (type === 'income');
-            const startDate = startDateInput ? new Date(startDateInput).toISOString() : new Date("2026-07-01").toISOString();
-
-            if (state.editingFixedExpenseId) {
-                const fe = state.fixedExpenses.find(f => (f.id || f.Id) === state.editingFixedExpenseId);
-                if (fe) {
-                    fe.title = title;
-                    fe.amount = amount;
-                    fe.isIncome = isIncome;
-                    fe.category = category;
-                    fe.dayOfMonth = dayOfMonth;
-                    fe.assignedTo = assignedTo;
-                    fe.notes = notes;
-                    fe.startDate = startDate;
-
-                    fe.Title = title;
-                    fe.Amount = amount;
-                    fe.IsIncome = isIncome;
-                    fe.Category = category;
-                    fe.DayOfMonth = dayOfMonth;
-                    fe.AssignedTo = assignedTo;
-                    fe.Notes = notes;
-                    fe.StartDate = startDate;
-                }
-            } else {
-                const newFe = {
-                    id: generateUUID(),
-                    title: title,
-                    amount: amount,
-                    isIncome: isIncome,
-                    category: category,
-                    dayOfMonth: dayOfMonth,
-                    assignedTo: assignedTo,
-                    notes: notes,
-                    startDate: startDate,
-                    StartDate: startDate
-                };
-                newFe.Id = newFe.id;
-                newFe.Title = newFe.title;
-                newFe.Amount = newFe.amount;
-                newFe.IsIncome = newFe.isIncome;
-                newFe.Category = newFe.category;
-                newFe.DayOfMonth = newFe.dayOfMonth;
-                newFe.AssignedTo = newFe.assignedTo;
-                newFe.Notes = newFe.notes;
-
-                state.fixedExpenses.push(newFe);
-            }
-
-            if (state.mode === 'google') {
-                saveFixedExpensesToGoogle();
-            } else {
-                saveFixedExpensesToLocal();
-                updateDataViews();
-            }
-
-            closeFixedExpenseDialog();
-        }
-
-        function confirmDeleteFixedExpense(id) {
-            state.deletingFixedExpenseId = id;
-            const fe = state.fixedExpenses.find(f => (f.id || f.Id) === id);
-            if (fe) {
-                const title = fe.title || fe.Title || '';
-                const amt = fe.amount || fe.Amount || 0;
-                document.getElementById('fixed-confirm-message').textContent = `Möchten Sie den Fixkosten-Eintrag "${title}" (${parseFloat(amt).toFixed(2)} €) wirklich löschen?`;
-                showOverlay('fixed-confirm-dialog');
-            }
-        }
-
-        function handleFixedExpenseDeleteConfirmed() {
-            const id = state.deletingFixedExpenseId;
-            if (id) {
-                const idx = state.fixedExpenses.findIndex(f => (f.id || f.Id) === id);
-                if (idx !== -1) {
-                    state.fixedExpenses.splice(idx, 1);
-                }
-
-                if (state.mode === 'google') {
-                    saveFixedExpensesToGoogle();
-                } else {
-                    saveFixedExpensesToLocal();
-                    updateDataViews();
+            let startDateVal = '2026-07-01';
+            const rawStart = fe.startDate || fe.StartDate;
+            if (rawStart) {
+                const d = new Date(rawStart);
+                if (!isNaN(d.getTime())) {
+                    const yyyy = d.getFullYear();
+                    const mm = String(d.getMonth() + 1).padStart(2, '0');
+                    const dd = String(d.getDate()).padStart(2, '0');
+                    startDateVal = `${yyyy}-${mm}-${dd}`;
                 }
             }
-            hideOverlay('fixed-confirm-dialog');
-            state.deletingFixedExpenseId = null;
+            document.getElementById('fixed-field-startdate').value = startDateVal;
+        }
+    } else {
+        document.getElementById('fixed-dialog-title').textContent = "Neue Fixkosten";
+    }
+
+    showOverlay('fixed-expense-dialog');
+}
+
+function closeFixedExpenseDialog() {
+    hideOverlay('fixed-expense-dialog');
+    state.editingFixedExpenseId = null;
+}
+
+function handleFixedExpenseSave(e) {
+    e.preventDefault();
+
+    const title = document.getElementById('fixed-field-title').value.trim();
+    const amount = parseFloat(document.getElementById('fixed-field-amount').value);
+    const type = document.getElementById('fixed-field-type').value;
+    const category = document.getElementById('fixed-field-category').value;
+    const dayOfMonth = parseInt(document.getElementById('fixed-field-day').value) || 1;
+    const assignedTo = document.getElementById('fixed-field-assigned').value;
+    const notes = document.getElementById('fixed-field-notes').value.trim();
+    const startDateInput = document.getElementById('fixed-field-startdate').value;
+
+    if (!title || isNaN(amount) || amount <= 0) {
+        alert("Bitte füllen Sie alle Pflichtfelder korrekt aus.");
+        return;
+    }
+
+    const isIncome = (type === 'income');
+    const startDate = startDateInput ? new Date(startDateInput).toISOString() : new Date("2026-07-01").toISOString();
+
+    if (state.editingFixedExpenseId) {
+        const fe = state.fixedExpenses.find(f => (f.id || f.Id) === state.editingFixedExpenseId);
+        if (fe) {
+            fe.title = title;
+            fe.amount = amount;
+            fe.isIncome = isIncome;
+            fe.category = category;
+            fe.dayOfMonth = dayOfMonth;
+            fe.assignedTo = assignedTo;
+            fe.notes = notes;
+            fe.startDate = startDate;
+
+            fe.Title = title;
+            fe.Amount = amount;
+            fe.IsIncome = isIncome;
+            fe.Category = category;
+            fe.DayOfMonth = dayOfMonth;
+            fe.AssignedTo = assignedTo;
+            fe.Notes = notes;
+            fe.StartDate = startDate;
+        }
+    } else {
+        const newFe = {
+            id: generateUUID(),
+            title: title,
+            amount: amount,
+            isIncome: isIncome,
+            category: category,
+            dayOfMonth: dayOfMonth,
+            assignedTo: assignedTo,
+            notes: notes,
+            startDate: startDate,
+            StartDate: startDate
+        };
+        newFe.Id = newFe.id;
+        newFe.Title = newFe.title;
+        newFe.Amount = newFe.amount;
+        newFe.IsIncome = newFe.isIncome;
+        newFe.Category = newFe.category;
+        newFe.DayOfMonth = newFe.dayOfMonth;
+        newFe.AssignedTo = newFe.assignedTo;
+        newFe.Notes = newFe.notes;
+
+        state.fixedExpenses.push(newFe);
+    }
+
+    if (state.mode === 'google') {
+        saveFixedExpensesToGoogle();
+    } else {
+        saveFixedExpensesToLocal();
+        updateDataViews();
+    }
+
+    closeFixedExpenseDialog();
+}
+
+function confirmDeleteFixedExpense(id) {
+    state.deletingFixedExpenseId = id;
+    const fe = state.fixedExpenses.find(f => (f.id || f.Id) === id);
+    if (fe) {
+        const title = fe.title || fe.Title || '';
+        const amt = fe.amount || fe.Amount || 0;
+        document.getElementById('fixed-confirm-message').textContent = `Möchten Sie den Fixkosten-Eintrag "${title}" (${parseFloat(amt).toFixed(2)} €) wirklich löschen?`;
+        showOverlay('fixed-confirm-dialog');
+    }
+}
+
+function handleFixedExpenseDeleteConfirmed() {
+    const id = state.deletingFixedExpenseId;
+    if (id) {
+        const idx = state.fixedExpenses.findIndex(f => (f.id || f.Id) === id);
+        if (idx !== -1) {
+            state.fixedExpenses.splice(idx, 1);
         }
 
-        // ==================== SONDERTILGUNG HANDLER ====================
-        function handleAddSondertilgung() {
-            const yrInput = document.getElementById('add-st-year');
-            const amtInput = document.getElementById('add-st-amount');
-            if (!yrInput || !amtInput) return;
-
-            const year = parseInt(yrInput.value);
-            const amount = parseFloat(amtInput.value);
-
-            if (isNaN(year) || year < 1 || isNaN(amount) || amount <= 0) {
-                alert("Bitte geben Sie ein gültiges Jahr und einen Betrag ein.");
-                return;
-            }
-
-            if (!state.selectedLoanId) {
-                alert("Kein Kredit ausgewählt.");
-                return;
-            }
-
-            const loan = state.loans.find(l => (l.id || l.Id) === state.selectedLoanId);
-            if (!loan) return;
-
-            if (!loan.oneTimeSondertilgungen && !loan.OneTimeSondertilgungen) {
-                loan.oneTimeSondertilgungen = [];
-            }
-            const list = loan.oneTimeSondertilgungen || loan.OneTimeSondertilgungen;
-            list.push({
-                year: year,
-                amount: amount,
-                isApplied: true
-            });
-
-            yrInput.value = '';
-            amtInput.value = '';
-
-            if (state.mode === 'google') {
-                saveLoansToGoogle();
-            } else {
-                saveLoansToLocal();
-                renderLoans();
-            }
+        if (state.mode === 'google') {
+            saveFixedExpensesToGoogle();
+        } else {
+            saveFixedExpensesToLocal();
+            updateDataViews();
         }
+    }
+    hideOverlay('fixed-confirm-dialog');
+    state.deletingFixedExpenseId = null;
+}
+
+// ==================== SONDERTILGUNG HANDLER ====================
+function handleAddSondertilgung() {
+    const yrInput = document.getElementById('add-st-year');
+    const amtInput = document.getElementById('add-st-amount');
+    if (!yrInput || !amtInput) return;
+
+    const year = parseInt(yrInput.value);
+    const amount = parseFloat(amtInput.value);
+
+    if (isNaN(year) || year < 1 || isNaN(amount) || amount <= 0) {
+        alert("Bitte geben Sie ein gültiges Jahr und einen Betrag ein.");
+        return;
+    }
+
+    if (!state.selectedLoanId) {
+        alert("Kein Kredit ausgewählt.");
+        return;
+    }
+
+    const loan = state.loans.find(l => (l.id || l.Id) === state.selectedLoanId);
+    if (!loan) return;
+
+    if (!loan.oneTimeSondertilgungen && !loan.OneTimeSondertilgungen) {
+        loan.oneTimeSondertilgungen = [];
+    }
+    const list = loan.oneTimeSondertilgungen || loan.OneTimeSondertilgungen;
+    list.push({
+        year: year,
+        amount: amount,
+        isApplied: true
+    });
+
+    yrInput.value = '';
+    amtInput.value = '';
+
+    if (state.mode === 'google') {
+        saveLoansToGoogle();
+    } else {
+        saveLoansToLocal();
+        renderLoans();
+    }
+}
