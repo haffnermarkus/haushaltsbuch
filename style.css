@@ -697,6 +697,10 @@ body, html {
     gap: 16px;
 }
 
+.keyboard-active .sheet-content {
+    padding-bottom: 180px;
+}
+
 /* Popup Box Modal Overlay */
 .popup-box {
     position: absolute;

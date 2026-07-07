@@ -115,8 +115,11 @@ export async function onAuthSuccess(accessToken, existingFileId) {
     // 3. Suche und lade Szenarieneinstellungen (Kategorien & Partnernamen)
     let settingsId = await searchFile('scenario_settings.json');
     if (settingsId) {
+        state.scenarioSettingsFileId = settingsId;
+        localStorage.setItem('gdrive_scenario_settings_file_id', settingsId);
         let settings = await downloadFileContent(settingsId);
         if (settings) {
+            state.scenarioSettings = settings;
             if (settings.BudgetCategories || settings.budgetCategories) {
                 state.budgetCategories = settings.BudgetCategories || settings.budgetCategories;
                 console.log('[Auth] Dynamische Kategorien geladen:', state.budgetCategories);

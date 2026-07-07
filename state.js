@@ -21,6 +21,8 @@ export const state = {
     buildingCostsFileId: localStorage.getItem('gdrive_building_costs_file_id') || null,
     fixedExpensesFileId: localStorage.getItem('gdrive_fixed_expenses_file_id') || null, // Neu
     loansFileId: localStorage.getItem('gdrive_loans_file_id') || null, // Neu
+    scenarioSettingsFileId: localStorage.getItem('gdrive_scenario_settings_file_id') || null,
+    scenarioSettings: {},
     budgetCategories: [], // Loaded dynamically from scenario_settings.json
     partner1Name: 'Markus',
     partner2Name: 'Maren'

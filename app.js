@@ -309,14 +309,51 @@ function initUI() {
     };
     window.addEventListener('scroll', handleViewportReset, { passive: true });
 
+    // Handle mobile keyboard and visual viewport height changes
+    if (window.visualViewport) {
+        const handleVisualViewportResize = () => {
+            const app = document.querySelector('.app-container');
+            if (app) {
+                app.style.height = `${window.visualViewport.height}px`;
+            }
+            
+            // Scroll the active input into view inside the active bottom sheet
+            const activeInput = document.activeElement;
+            if (activeInput && (activeInput.tagName === 'INPUT' || activeInput.tagName === 'SELECT' || activeInput.tagName === 'TEXTAREA')) {
+                const sheetContent = activeInput.closest('.sheet-content');
+                if (sheetContent) {
+                    setTimeout(() => {
+                        activeInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }, 100);
+                }
+            }
+        };
+        
+        window.visualViewport.addEventListener('resize', handleVisualViewportResize);
+        window.visualViewport.addEventListener('scroll', handleVisualViewportResize);
+        
+        // Initial run
+        handleVisualViewportResize();
+    }
+
     // Also reset on input focus/blur to be extra safe on different browsers
     document.addEventListener('focusin', (e) => {
         if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') {
+            document.body.classList.add('keyboard-active');
             setTimeout(handleViewportReset, 50);
+            
+            // Scroll into view inside the sheet content if applicable
+            const sheetContent = e.target.closest('.sheet-content');
+            if (sheetContent) {
+                setTimeout(() => {
+                    e.target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }, 150);
+            }
         }
     });
     document.addEventListener('focusout', (e) => {
         if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') {
+            document.body.classList.remove('keyboard-active');
             setTimeout(handleViewportReset, 50);
         }
     });
@@ -429,6 +466,29 @@ async function loadTransactionsFromGoogle() {
         // 4. Baukosten (if file id cached)
         if (state.buildingCostsFileId) {
             state.buildingCosts = await downloadFileContent(state.buildingCostsFileId) || [];
+        }
+
+        // 5. Szenarieneinstellungen (Miete, Kategorien, Partnernamen)
+        if (!state.scenarioSettingsFileId) {
+            state.scenarioSettingsFileId = await searchFile('scenario_settings.json');
+            if (state.scenarioSettingsFileId) {
+                localStorage.setItem('gdrive_scenario_settings_file_id', state.scenarioSettingsFileId);
+            }
+        }
+        if (state.scenarioSettingsFileId) {
+            let settings = await downloadFileContent(state.scenarioSettingsFileId);
+            if (settings) {
+                state.scenarioSettings = settings;
+                if (settings.BudgetCategories || settings.budgetCategories) {
+                    state.budgetCategories = settings.BudgetCategories || settings.budgetCategories;
+                }
+                if (settings.Partner1Name || settings.partner1Name) {
+                    state.partner1Name = settings.Partner1Name || settings.partner1Name;
+                }
+                if (settings.Partner2Name || settings.partner2Name) {
+                    state.partner2Name = settings.Partner2Name || settings.partner2Name;
+                }
+            }
         }
 
         updateSyncStatusIndicator('connected', 'Google Drive');
