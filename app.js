@@ -1,11 +1,11 @@
-import { 
-    state, 
-    MONTH_NAMES, 
-    SEED_DATA, 
-    escapeHtml, 
-    formatCurrency, 
-    generateUUID, 
-    loadTransactionsFromLocal, 
+import {
+    state,
+    MONTH_NAMES,
+    SEED_DATA,
+    escapeHtml,
+    formatCurrency,
+    generateUUID,
+    loadTransactionsFromLocal,
     saveTransactionsToLocal,
     loadFixedExpensesFromLocal,
     saveFixedExpensesToLocal,
@@ -14,26 +14,26 @@ import {
     updateSingleLoanCalculations
 } from './state.js';
 
-import { 
-    tryAutoReconnect, 
-    handleGoogleConnect, 
-    onAuthSuccess 
+import {
+    tryAutoReconnect,
+    handleGoogleConnect,
+    onAuthSuccess
 } from './auth.js';
 
-import { 
-    apiCall, 
-    searchFile, 
-    downloadFileContent, 
-    uploadFileContent, 
-    createFileInGoogle 
+import {
+    apiCall,
+    searchFile,
+    downloadFileContent,
+    uploadFileContent,
+    createFileInGoogle
 } from './api.js';
 
-import { 
-    updateDataViews, 
-    renderMonthsList, 
-    renderTransactionsList, 
-    renderSummaryBox, 
-    renderBuildingCosts, 
+import {
+    updateDataViews,
+    renderMonthsList,
+    renderTransactionsList,
+    renderSummaryBox,
+    renderBuildingCosts,
     populateCategoryDropdown,
     renderLoans,
     renderFixedExpenses,
@@ -42,14 +42,14 @@ import {
     updatePartnerDropdowns
 } from './ui.js';
 
-export { 
-    state, 
-    updateDataViews, 
-    openTransactionDialog, 
-    confirmDeleteTransaction, 
-    loadTransactionsFromGoogle, 
-    showScreen, 
-    updateSyncStatusIndicator, 
+export {
+    state,
+    updateDataViews,
+    openTransactionDialog,
+    confirmDeleteTransaction,
+    loadTransactionsFromGoogle,
+    showScreen,
+    updateSyncStatusIndicator,
     handleDisconnect,
     openFixedExpenseDialog,
     confirmDeleteFixedExpense,
@@ -86,7 +86,7 @@ const DEFAULT_API_KEY = "";
 document.addEventListener("DOMContentLoaded", () => {
     initUI();
     loadConfig();
-    
+
     // Bereits eine aktive Session in diesem Tab? -> direkt laden
     const savedToken = sessionStorage.getItem('gdrive_access_token');
     const savedFileId = localStorage.getItem('gdrive_file_id');
@@ -122,7 +122,7 @@ function waitForGisAndAutoReconnect() {
 function loadConfig() {
     state.clientId = localStorage.getItem('gdrive_client_id') || DEFAULT_CLIENT_ID;
     state.apiKey = localStorage.getItem('gdrive_api_key') || DEFAULT_API_KEY;
-    
+
     const clientInput = document.getElementById('setting-client-id');
     if (clientInput) clientInput.value = state.clientId;
     const apiInput = document.getElementById('setting-api-key');
@@ -149,11 +149,11 @@ function initUI() {
     // Connect Google button
     const btnConnect = document.getElementById('btn-connect-google');
     if (btnConnect) btnConnect.addEventListener('click', handleGoogleConnect);
-    
+
     // Local Mode button
     const btnLocal = document.getElementById('btn-local-mode');
     if (btnLocal) btnLocal.addEventListener('click', handleLocalModeStart);
-    
+
     // Refresh button
     const btnRefresh = document.getElementById('btn-refresh');
     if (btnRefresh) {
@@ -226,9 +226,15 @@ function initUI() {
     // Evaluation Filter listeners
     const filterSearch = document.getElementById('filter-search');
     if (filterSearch) filterSearch.addEventListener('input', renderFilterableTransactions);
-    ['filter-year', 'filter-month', 'filter-category', 'filter-assigned'].forEach(id => {
+    ['filter-year', 'filter-month', 'filter-category', 'filter-assigned', 'filter-type'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.addEventListener('change', renderFilterableTransactions);
+    });
+
+    // Fixed Expenses Filter listeners
+    ['fixed-filter-month', 'fixed-filter-year'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('change', renderFixedExpenses);
     });
 
     // Transaction Details Close
@@ -238,7 +244,7 @@ function initUI() {
     // FAB Add transaction
     const btnAdd = document.getElementById('btn-add-transaction');
     if (btnAdd) btnAdd.addEventListener('click', () => openTransactionDialog());
-    
+
     // Dialog Buttons
     const btnClose = document.getElementById('dialog-btn-close');
     if (btnClose) btnClose.addEventListener('click', closeTransactionDialog);
@@ -290,7 +296,7 @@ function initUI() {
     // Set today's date default in Form input
     const fieldDate = document.getElementById('field-date');
     if (fieldDate) fieldDate.value = new Date().toISOString().substring(0, 10);
-    
+
     // Populate dropdown dynamically in case it's ready
     populateCategoryDropdown();
     updatePartnerDropdowns();
@@ -360,7 +366,7 @@ function mergeTransactions(local, remote) {
         if (!t) return;
         const id = t.id || t.Id;
         if (!id) return;
-        
+
         if (map.has(id)) {
             const existing = map.get(id);
             const tTime = new Date(t.updatedAt || t.UpdatedAt || 0).getTime();
@@ -393,13 +399,13 @@ function mergeTransactions(local, remote) {
 
 async function loadTransactionsFromGoogle() {
     if (!state.fileId) return;
-    
+
     updateSyncStatusIndicator('local', 'Lade...');
     try {
         // 1. Transactions
         let data = await downloadFileContent(state.fileId);
         state.transactions = mergeTransactions(state.transactions || [], data || []);
-        
+
         // 2. Fixed Expenses
         if (!state.fixedExpensesFileId) {
             state.fixedExpensesFileId = await searchFile('fixed_expenses.json');
@@ -424,7 +430,7 @@ async function loadTransactionsFromGoogle() {
         if (state.buildingCostsFileId) {
             state.buildingCosts = await downloadFileContent(state.buildingCostsFileId) || [];
         }
-        
+
         updateSyncStatusIndicator('connected', 'Google Drive');
         updateDataViews();
     } catch (err) {
@@ -435,7 +441,7 @@ async function loadTransactionsFromGoogle() {
 
 async function saveTransactionsToGoogle() {
     if (!state.fileId) return;
-    
+
     updateSyncStatusIndicator('local', 'Synchronisiere...');
     try {
         let remoteTransactions = await downloadFileContent(state.fileId) || [];
@@ -460,13 +466,13 @@ function saveSettings() {
     const cId = document.getElementById('setting-client-id').value.trim();
     const apiKey = document.getElementById('setting-api-key').value.trim();
     const fileId = document.getElementById('setting-file-id').value.trim();
-    
+
     state.clientId = cId;
     state.apiKey = apiKey;
-    
+
     localStorage.setItem('gdrive_client_id', cId);
     localStorage.setItem('gdrive_api_key', apiKey);
-    
+
     if (fileId && fileId !== state.fileId) {
         state.fileId = fileId;
         localStorage.setItem('gdrive_file_id', fileId);
@@ -474,7 +480,7 @@ function saveSettings() {
             loadTransactionsFromGoogle();
         }
     }
-    
+
     hideOverlay('settings-dialog');
     alert("Einstellungen erfolgreich gespeichert!");
 }
@@ -484,7 +490,7 @@ function handleDisconnect() {
     state.fileId = null;
     sessionStorage.removeItem('gdrive_access_token');
     localStorage.removeItem('gdrive_file_id');
-    
+
     hideOverlay('settings-dialog');
     showScreen('login-screen');
     updateSyncStatusIndicator('local', 'Lokal');
@@ -493,19 +499,19 @@ function handleDisconnect() {
 // ==================== TRANSACTION DIALOG (ADD / EDIT) ====================
 function openTransactionDialog(id = null) {
     state.editingTransactionId = id;
-    
+
     document.getElementById('field-title').value = '';
     document.getElementById('field-amount').value = '';
     document.getElementById('field-type').value = 'expense';
     document.getElementById('field-category').value = 'Sonstiges';
     document.getElementById('field-assigned').value = 'Gemeinsam';
     document.getElementById('field-notes').value = '';
-    
+
     const activeYear = state.selectedYear;
     const activeMonth = String(state.selectedMonth).padStart(2, '0');
     const today = new Date();
-    const day = (today.getMonth() + 1 === state.selectedMonth && today.getFullYear() === state.selectedYear) 
-        ? String(today.getDate()).padStart(2, '0') 
+    const day = (today.getMonth() + 1 === state.selectedMonth && today.getFullYear() === state.selectedYear)
+        ? String(today.getDate()).padStart(2, '0')
         : '01';
     document.getElementById('field-date').value = `${activeYear}-${activeMonth}-${day}`;
 
@@ -524,7 +530,7 @@ function openTransactionDialog(id = null) {
     } else {
         document.getElementById('dialog-title').textContent = "Neuer Eintrag";
     }
-    
+
     showOverlay('transaction-dialog');
 }
 
@@ -535,7 +541,7 @@ function closeTransactionDialog() {
 
 function handleTransactionSave(e) {
     e.preventDefault();
-    
+
     const title = document.getElementById('field-title').value.trim();
     const amount = parseFloat(document.getElementById('field-amount').value);
     const type = document.getElementById('field-type').value;
@@ -543,15 +549,15 @@ function handleTransactionSave(e) {
     const assignedTo = document.getElementById('field-assigned').value;
     const dateStr = document.getElementById('field-date').value;
     const notes = document.getElementById('field-notes').value.trim();
-    
+
     if (!title || isNaN(amount) || amount <= 0 || !dateStr) {
         alert("Bitte füllen Sie alle Pflichtfelder korrekt aus.");
         return;
     }
-    
+
     const date = new Date(dateStr).toISOString();
     const isIncome = (type === 'income');
-    
+
     if (state.editingTransactionId) {
         const trans = state.transactions.find(t => (t.id || t.Id) === state.editingTransactionId);
         if (trans) {
@@ -563,7 +569,7 @@ function handleTransactionSave(e) {
             trans.date = date;
             trans.notes = notes;
             trans.updatedAt = new Date().toISOString();
-            
+
             // C# properties sync if loaded from desktop
             trans.Title = title;
             trans.Amount = amount;
@@ -603,14 +609,14 @@ function handleTransactionSave(e) {
 
         state.transactions.unshift(newTrans);
     }
-    
+
     if (state.mode === 'google') {
         saveTransactionsToGoogle();
     } else {
         saveTransactionsToLocal();
         updateDataViews();
     }
-    
+
     closeTransactionDialog();
 }
 
@@ -636,7 +642,7 @@ function handleTransactionDeleteConfirmed() {
             trans.IsDeleted = true;
             trans.UpdatedAt = trans.updatedAt;
         }
-        
+
         if (state.mode === 'google') {
             saveTransactionsToGoogle();
         } else {
@@ -651,21 +657,21 @@ function handleTransactionDeleteConfirmed() {
 // ==================== TAB SWITCHING & BAUKOSTEN ====================
 function switchTab(tabId) {
     state.activeTab = tabId;
-    
+
     const tabs = ['dashboard', 'transactions', 'fixed-expenses', 'loans', 'baukosten'];
     tabs.forEach(tab => {
         const navEl = document.getElementById(`sidebar-nav-${tab}`);
         if (navEl) navEl.classList.toggle('active', tabId === tab);
-        
+
         const pageEl = document.getElementById(`tab-${tab}`);
         if (pageEl) pageEl.classList.toggle('active', tabId === tab);
     });
-    
+
     const btnAdd = document.getElementById('btn-add-transaction');
     if (btnAdd) {
         btnAdd.style.display = (tabId === 'dashboard' || tabId === 'transactions') ? 'flex' : 'none';
     }
-    
+
     if (tabId === 'baukosten') {
         loadBuildingCostsFromGoogle();
     } else {
@@ -676,12 +682,12 @@ function switchTab(tabId) {
 async function loadBuildingCostsFromGoogle() {
     const listContainer = document.getElementById('baukosten-list');
     if (!listContainer) return;
-    
+
     if (state.mode !== 'google') {
         listContainer.innerHTML = `<div class="info-box">Baukosten können nur im Google Drive-Modus angezeigt werden.</div>`;
         return;
     }
-    
+
     if (!state.buildingCostsFileId) {
         state.buildingCostsFileId = await searchFile('building_costs.json');
         if (!state.buildingCostsFileId) {
@@ -690,9 +696,9 @@ async function loadBuildingCostsFromGoogle() {
         }
         localStorage.setItem('gdrive_building_costs_file_id', state.buildingCostsFileId);
     }
-    
+
     listContainer.innerHTML = `<div class="loading-state">Lade Baukosten...</div>`;
-    
+
     try {
         let data = await downloadFileContent(state.buildingCostsFileId);
         state.buildingCosts = data || [];
@@ -711,9 +717,9 @@ async function saveFixedExpensesToGoogle() {
             if (state.fixedExpensesFileId) localStorage.setItem('gdrive_fixed_expenses_file_id', state.fixedExpensesFileId);
         }
     }
-    
+
     if (!state.fixedExpensesFileId) return;
-    
+
     updateSyncStatusIndicator('local', 'Synchronisiere...');
     try {
         let success = await uploadFileContent(state.fixedExpensesFileId, state.fixedExpenses);
@@ -738,9 +744,9 @@ async function saveLoansToGoogle() {
             if (state.loansFileId) localStorage.setItem('gdrive_loans_file_id', state.loansFileId);
         }
     }
-    
+
     if (!state.loansFileId) return;
-    
+
     updateSyncStatusIndicator('local', 'Synchronisiere...');
     try {
         let success = await uploadFileContent(state.loansFileId, state.loans);
@@ -754,184 +760,201 @@ async function saveLoansToGoogle() {
     } catch (err) {
         updateSyncStatusIndicator('local', 'Fehler');
         console.error("Loans Sync Error:", err);
-    }
-}
+        // ==================== FIXED EXPENSES CRUD HANDLERS ====================
+        function openFixedExpenseDialog(id = null) {
+            state.editingFixedExpenseId = id;
 
-// ==================== FIXED EXPENSES CRUD HANDLERS ====================
-function openFixedExpenseDialog(id = null) {
-    state.editingFixedExpenseId = id;
-    
-    document.getElementById('fixed-field-title').value = '';
-    document.getElementById('fixed-field-amount').value = '';
-    document.getElementById('fixed-field-type').value = 'expense';
-    document.getElementById('fixed-field-category').value = 'Sonstiges';
-    document.getElementById('fixed-field-day').value = '1';
-    document.getElementById('fixed-field-assigned').value = 'Gemeinsam';
-    document.getElementById('fixed-field-notes').value = '';
+            document.getElementById('fixed-field-title').value = '';
+            document.getElementById('fixed-field-amount').value = '';
+            document.getElementById('fixed-field-type').value = 'expense';
+            document.getElementById('fixed-field-category').value = 'Sonstiges';
+            document.getElementById('fixed-field-day').value = '1';
+            document.getElementById('fixed-field-assigned').value = 'Gemeinsam';
+            document.getElementById('fixed-field-notes').value = '';
+            document.getElementById('fixed-field-startdate').value = '2026-07-01';
 
-    if (id) {
-        document.getElementById('fixed-dialog-title').textContent = "Fixkosten bearbeiten";
-        const fe = state.fixedExpenses.find(f => (f.id || f.Id) === id);
-        if (fe) {
-            document.getElementById('fixed-field-title').value = fe.title || fe.Title || '';
-            document.getElementById('fixed-field-amount').value = Math.abs(fe.amount || fe.Amount || 0);
-            document.getElementById('fixed-field-type').value = (fe.isIncome || fe.IsIncome) ? 'income' : 'expense';
-            document.getElementById('fixed-field-category').value = fe.category || fe.Category || 'Sonstiges';
-            document.getElementById('fixed-field-day').value = fe.dayOfMonth || fe.DayOfMonth || 1;
-            document.getElementById('fixed-field-assigned').value = fe.assignedTo || fe.AssignedTo || 'Gemeinsam';
-            document.getElementById('fixed-field-notes').value = fe.notes || fe.Notes || '';
+            if (id) {
+                document.getElementById('fixed-dialog-title').textContent = "Fixkosten bearbeiten";
+                const fe = state.fixedExpenses.find(f => (f.id || f.Id) === id);
+                if (fe) {
+                    document.getElementById('fixed-field-title').value = fe.title || fe.Title || '';
+                    document.getElementById('fixed-field-amount').value = Math.abs(fe.amount || fe.Amount || 0);
+                    document.getElementById('fixed-field-type').value = (fe.isIncome || fe.IsIncome) ? 'income' : 'expense';
+                    document.getElementById('fixed-field-category').value = fe.category || fe.Category || 'Sonstiges';
+                    document.getElementById('fixed-field-day').value = fe.dayOfMonth || fe.DayOfMonth || 1;
+                    document.getElementById('fixed-field-assigned').value = fe.assignedTo || fe.AssignedTo || 'Gemeinsam';
+                    document.getElementById('fixed-field-notes').value = fe.notes || fe.Notes || '';
+
+                    let startDateVal = '2026-07-01';
+                    const rawStart = fe.startDate || fe.StartDate;
+                    if (rawStart) {
+                        const d = new Date(rawStart);
+                        if (!isNaN(d.getTime())) {
+                            const yyyy = d.getFullYear();
+                            const mm = String(d.getMonth() + 1).padStart(2, '0');
+                            const dd = String(d.getDate()).padStart(2, '0');
+                            startDateVal = `${yyyy}-${mm}-${dd}`;
+                        }
+                    }
+                    document.getElementById('fixed-field-startdate').value = startDateVal;
+                }
+            } else {
+                document.getElementById('fixed-dialog-title').textContent = "Neue Fixkosten";
+            }
+
+            showOverlay('fixed-expense-dialog');
         }
-    } else {
-        document.getElementById('fixed-dialog-title').textContent = "Neue Fixkosten";
-    }
-    
-    showOverlay('fixed-expense-dialog');
-}
 
-function closeFixedExpenseDialog() {
-    hideOverlay('fixed-expense-dialog');
-    state.editingFixedExpenseId = null;
-}
-
-function handleFixedExpenseSave(e) {
-    e.preventDefault();
-    
-    const title = document.getElementById('fixed-field-title').value.trim();
-    const amount = parseFloat(document.getElementById('fixed-field-amount').value);
-    const type = document.getElementById('fixed-field-type').value;
-    const category = document.getElementById('fixed-field-category').value;
-    const dayOfMonth = parseInt(document.getElementById('fixed-field-day').value) || 1;
-    const assignedTo = document.getElementById('fixed-field-assigned').value;
-    const notes = document.getElementById('fixed-field-notes').value.trim();
-    
-    if (!title || isNaN(amount) || amount <= 0) {
-        alert("Bitte füllen Sie alle Pflichtfelder korrekt aus.");
-        return;
-    }
-    
-    const isIncome = (type === 'income');
-    
-    if (state.editingFixedExpenseId) {
-        const fe = state.fixedExpenses.find(f => (f.id || f.Id) === state.editingFixedExpenseId);
-        if (fe) {
-            fe.title = title;
-            fe.amount = amount;
-            fe.isIncome = isIncome;
-            fe.category = category;
-            fe.dayOfMonth = dayOfMonth;
-            fe.assignedTo = assignedTo;
-            fe.notes = notes;
-            
-            fe.Title = title;
-            fe.Amount = amount;
-            fe.IsIncome = isIncome;
-            fe.Category = category;
-            fe.DayOfMonth = dayOfMonth;
-            fe.AssignedTo = assignedTo;
-            fe.Notes = notes;
+        function closeFixedExpenseDialog() {
+            hideOverlay('fixed-expense-dialog');
+            state.editingFixedExpenseId = null;
         }
-    } else {
-        const newFe = {
-            id: generateUUID(),
-            title: title,
-            amount: amount,
-            isIncome: isIncome,
-            category: category,
-            dayOfMonth: dayOfMonth,
-            assignedTo: assignedTo,
-            notes: notes
-        };
-        newFe.Id = newFe.id;
-        newFe.Title = newFe.title;
-        newFe.Amount = newFe.amount;
-        newFe.IsIncome = newFe.isIncome;
-        newFe.Category = newFe.category;
-        newFe.DayOfMonth = newFe.dayOfMonth;
-        newFe.AssignedTo = newFe.assignedTo;
-        newFe.Notes = newFe.notes;
 
-        state.fixedExpenses.push(newFe);
-    }
-    
-    if (state.mode === 'google') {
-        saveFixedExpensesToGoogle();
-    } else {
-        saveFixedExpensesToLocal();
-        updateDataViews();
-    }
-    
-    closeFixedExpenseDialog();
-}
+        function handleFixedExpenseSave(e) {
+            e.preventDefault();
 
-function confirmDeleteFixedExpense(id) {
-    state.deletingFixedExpenseId = id;
-    const fe = state.fixedExpenses.find(f => (f.id || f.Id) === id);
-    if (fe) {
-        const title = fe.title || fe.Title || '';
-        const amt = fe.amount || fe.Amount || 0;
-        document.getElementById('fixed-confirm-message').textContent = `Möchten Sie den Fixkosten-Eintrag "${title}" (${parseFloat(amt).toFixed(2)} €) wirklich löschen?`;
-        showOverlay('fixed-confirm-dialog');
-    }
-}
+            const title = document.getElementById('fixed-field-title').value.trim();
+            const amount = parseFloat(document.getElementById('fixed-field-amount').value);
+            const type = document.getElementById('fixed-field-type').value;
+            const category = document.getElementById('fixed-field-category').value;
+            const dayOfMonth = parseInt(document.getElementById('fixed-field-day').value) || 1;
+            const assignedTo = document.getElementById('fixed-field-assigned').value;
+            const notes = document.getElementById('fixed-field-notes').value.trim();
+            const startDateInput = document.getElementById('fixed-field-startdate').value;
 
-function handleFixedExpenseDeleteConfirmed() {
-    const id = state.deletingFixedExpenseId;
-    if (id) {
-        const idx = state.fixedExpenses.findIndex(f => (f.id || f.Id) === id);
-        if (idx !== -1) {
-            state.fixedExpenses.splice(idx, 1);
+            if (!title || isNaN(amount) || amount <= 0) {
+                alert("Bitte füllen Sie alle Pflichtfelder korrekt aus.");
+                return;
+            }
+
+            const isIncome = (type === 'income');
+            const startDate = startDateInput ? new Date(startDateInput).toISOString() : new Date("2026-07-01").toISOString();
+
+            if (state.editingFixedExpenseId) {
+                const fe = state.fixedExpenses.find(f => (f.id || f.Id) === state.editingFixedExpenseId);
+                if (fe) {
+                    fe.title = title;
+                    fe.amount = amount;
+                    fe.isIncome = isIncome;
+                    fe.category = category;
+                    fe.dayOfMonth = dayOfMonth;
+                    fe.assignedTo = assignedTo;
+                    fe.notes = notes;
+                    fe.startDate = startDate;
+
+                    fe.Title = title;
+                    fe.Amount = amount;
+                    fe.IsIncome = isIncome;
+                    fe.Category = category;
+                    fe.DayOfMonth = dayOfMonth;
+                    fe.AssignedTo = assignedTo;
+                    fe.Notes = notes;
+                    fe.StartDate = startDate;
+                }
+            } else {
+                const newFe = {
+                    id: generateUUID(),
+                    title: title,
+                    amount: amount,
+                    isIncome: isIncome,
+                    category: category,
+                    dayOfMonth: dayOfMonth,
+                    assignedTo: assignedTo,
+                    notes: notes,
+                    startDate: startDate,
+                    StartDate: startDate
+                };
+                newFe.Id = newFe.id;
+                newFe.Title = newFe.title;
+                newFe.Amount = newFe.amount;
+                newFe.IsIncome = newFe.isIncome;
+                newFe.Category = newFe.category;
+                newFe.DayOfMonth = newFe.dayOfMonth;
+                newFe.AssignedTo = newFe.assignedTo;
+                newFe.Notes = newFe.notes;
+
+                state.fixedExpenses.push(newFe);
+            }
+
+            if (state.mode === 'google') {
+                saveFixedExpensesToGoogle();
+            } else {
+                saveFixedExpensesToLocal();
+                updateDataViews();
+            }
+
+            closeFixedExpenseDialog();
         }
-        
-        if (state.mode === 'google') {
-            saveFixedExpensesToGoogle();
-        } else {
-            saveFixedExpensesToLocal();
-            updateDataViews();
+
+        function confirmDeleteFixedExpense(id) {
+            state.deletingFixedExpenseId = id;
+            const fe = state.fixedExpenses.find(f => (f.id || f.Id) === id);
+            if (fe) {
+                const title = fe.title || fe.Title || '';
+                const amt = fe.amount || fe.Amount || 0;
+                document.getElementById('fixed-confirm-message').textContent = `Möchten Sie den Fixkosten-Eintrag "${title}" (${parseFloat(amt).toFixed(2)} €) wirklich löschen?`;
+                showOverlay('fixed-confirm-dialog');
+            }
         }
-    }
-    hideOverlay('fixed-confirm-dialog');
-    state.deletingFixedExpenseId = null;
-}
 
-// ==================== SONDERTILGUNG HANDLER ====================
-function handleAddSondertilgung() {
-    const yrInput = document.getElementById('add-st-year');
-    const amtInput = document.getElementById('add-st-amount');
-    if (!yrInput || !amtInput) return;
+        function handleFixedExpenseDeleteConfirmed() {
+            const id = state.deletingFixedExpenseId;
+            if (id) {
+                const idx = state.fixedExpenses.findIndex(f => (f.id || f.Id) === id);
+                if (idx !== -1) {
+                    state.fixedExpenses.splice(idx, 1);
+                }
 
-    const year = parseInt(yrInput.value);
-    const amount = parseFloat(amtInput.value);
+                if (state.mode === 'google') {
+                    saveFixedExpensesToGoogle();
+                } else {
+                    saveFixedExpensesToLocal();
+                    updateDataViews();
+                }
+            }
+            hideOverlay('fixed-confirm-dialog');
+            state.deletingFixedExpenseId = null;
+        }
 
-    if (isNaN(year) || year < 1 || isNaN(amount) || amount <= 0) {
-        alert("Bitte geben Sie ein gültiges Jahr und einen Betrag ein.");
-        return;
-    }
+        // ==================== SONDERTILGUNG HANDLER ====================
+        function handleAddSondertilgung() {
+            const yrInput = document.getElementById('add-st-year');
+            const amtInput = document.getElementById('add-st-amount');
+            if (!yrInput || !amtInput) return;
 
-    if (!state.selectedLoanId) {
-        alert("Kein Kredit ausgewählt.");
-        return;
-    }
+            const year = parseInt(yrInput.value);
+            const amount = parseFloat(amtInput.value);
 
-    const loan = state.loans.find(l => (l.id || l.Id) === state.selectedLoanId);
-    if (!loan) return;
+            if (isNaN(year) || year < 1 || isNaN(amount) || amount <= 0) {
+                alert("Bitte geben Sie ein gültiges Jahr und einen Betrag ein.");
+                return;
+            }
 
-    if (!loan.oneTimeSondertilgungen && !loan.OneTimeSondertilgungen) {
-        loan.oneTimeSondertilgungen = [];
-    }
-    const list = loan.oneTimeSondertilgungen || loan.OneTimeSondertilgungen;
-    list.push({
-        year: year,
-        amount: amount,
-        isApplied: true
-    });
+            if (!state.selectedLoanId) {
+                alert("Kein Kredit ausgewählt.");
+                return;
+            }
 
-    yrInput.value = '';
-    amtInput.value = '';
+            const loan = state.loans.find(l => (l.id || l.Id) === state.selectedLoanId);
+            if (!loan) return;
 
-    if (state.mode === 'google') {
-        saveLoansToGoogle();
-    } else {
-        saveLoansToLocal();
-        renderLoans();
-    }
-}
+            if (!loan.oneTimeSondertilgungen && !loan.OneTimeSondertilgungen) {
+                loan.oneTimeSondertilgungen = [];
+            }
+            const list = loan.oneTimeSondertilgungen || loan.OneTimeSondertilgungen;
+            list.push({
+                year: year,
+                amount: amount,
+                isApplied: true
+            });
+
+            yrInput.value = '';
+            amtInput.value = '';
+
+            if (state.mode === 'google') {
+                saveLoansToGoogle();
+            } else {
+                saveLoansToLocal();
+                renderLoans();
+            }
+        }

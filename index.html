@@ -235,6 +235,17 @@
                                 </select>
                             </div>
                         </div>
+                        <div class="form-row">
+                            <div class="form-group" style="width: 100%; margin-bottom: 0;">
+                                <label for="filter-type">Auswertungs-Typ</label>
+                                <select id="filter-type" class="form-control">
+                                    <option value="All">Alle Typen</option>
+                                    <option value="Monatskosten">Monatskosten (Variable Buchungen)</option>
+                                    <option value="Fixkosten">Fixkosten</option>
+                                    <option value="Baukosten">Baukosten</option>
+                                </select>
+                            </div>
+                        </div>
                     </div>
 
                     <!-- Filter Summary Card -->
@@ -277,19 +288,46 @@
 
                     <!-- Fixed Expenses Totals -->
                     <div class="summary-card">
-                        <div class="summary-details">
-                            <div class="stat-box">
-                                <span class="label">Fix-Einnahmen</span>
-                                <span id="fixed-total-income" class="value income">+0,00 €</span>
-                            </div>
-                            <div class="stat-box">
-                                <span class="label">Fix-Ausgaben</span>
-                                <span id="fixed-total-expenses" class="value expense">-0,00 €</span>
+                        <div class="summary-details" style="grid-template-columns: 1fr;">
+                            <div class="stat-box" style="text-align: center;">
+                                <span class="label">Monatliche Fixausgaben</span>
+                                <span id="fixed-total-expenses" class="value expense" style="font-size: 24px; font-weight: 600; margin-top: 4px;">-0,00 €</span>
                             </div>
                         </div>
-                        <div class="summary-surplus" style="margin-top: 10px; border-top: 1px solid var(--border-color); padding-top: 8px;">
-                            <span class="label font-bold">Netto Fixkosten:</span>
-                            <span id="fixed-total-surplus" class="value surplus-value">0,00 €</span>
+                    </div>
+
+                    <!-- Filter Row for Fixed Expenses -->
+                    <div class="filter-panel" style="margin-top: 16px; padding: 12px; background: var(--bg-card); border-radius: 8px; border: 1px solid var(--border-color);">
+                        <div class="form-row">
+                            <div class="form-group half" style="margin-bottom: 0;">
+                                <label for="fixed-filter-month">Filter Monat</label>
+                                <select id="fixed-filter-month" class="form-control">
+                                    <option value="All">Alle</option>
+                                    <option value="1">Januar</option>
+                                    <option value="2">Februar</option>
+                                    <option value="3">März</option>
+                                    <option value="4">April</option>
+                                    <option value="5">Mai</option>
+                                    <option value="6">Juni</option>
+                                    <option value="7">Juli</option>
+                                    <option value="8">August</option>
+                                    <option value="9">September</option>
+                                    <option value="10">Oktober</option>
+                                    <option value="11">November</option>
+                                    <option value="12">Dezember</option>
+                                </select>
+                            </div>
+                            <div class="form-group half" style="margin-bottom: 0;">
+                                <label for="fixed-filter-year">Filter Jahr</label>
+                                <select id="fixed-filter-year" class="form-control">
+                                    <option value="All">Alle</option>
+                                    <option value="2024">2024</option>
+                                    <option value="2025">2025</option>
+                                    <option value="2026">2026</option>
+                                    <option value="2027">2027</option>
+                                    <option value="2028">2028</option>
+                                </select>
+                            </div>
                         </div>
                     </div>
 
@@ -733,6 +771,10 @@
                             <option value="Partner 1">Markus</option>
                             <option value="Partner 2">Maren</option>
                         </select>
+                    </div>
+                    <div class="form-group half">
+                        <label for="fixed-field-startdate">Startdatum</label>
+                        <input type="date" id="fixed-field-startdate" class="form-control" required>
                     </div>
                 </div>
 

@@ -174,6 +174,8 @@ export function loadLoansFromLocal() {
                 firstPaymentDate: "2024-02-01", 
                 fixedTermYears: 10, 
                 notes: "Hauptkredit Hausbau",
+                assignedTo: "Gemeinsam",
+                includeInFixedCosts: true,
                 oneTimeSondertilgungen: [
                     { year: 2, amount: 5000, isApplied: true },
                     { year: 5, amount: 10000, isApplied: true }
@@ -188,7 +190,9 @@ export function loadLoansFromLocal() {
                 plannedTermMonths: 48, 
                 startDate: "2025-06-01", 
                 firstPaymentDate: "2025-07-01",
-                notes: "Ratenzahlung Familienauto"
+                notes: "Ratenzahlung Familienauto",
+                assignedTo: "Gemeinsam",
+                includeInFixedCosts: true
             }
         ];
         localStorage.setItem('local_loans', JSON.stringify(state.loans));

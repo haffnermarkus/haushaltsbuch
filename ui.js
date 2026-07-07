@@ -172,6 +172,8 @@ export function renderDashboard() {
     }
 }
 
+
+
 // ==================== FILTERABLE TRANSACTIONS (AUSWERTUNG) ====================
 export function renderFilterableTransactions() {
     const container = document.getElementById('filter-transactions-list');
@@ -183,38 +185,199 @@ export function renderFilterableTransactions() {
     const monthVal = document.getElementById('filter-month').value;
     const catVal = document.getElementById('filter-category').value;
     const assignVal = document.getElementById('filter-assigned').value;
+    const typeVal = document.getElementById('filter-type') ? document.getElementById('filter-type').value : 'All';
 
-    const filtered = state.transactions.filter(t => {
-        if (t.isDeleted || t.IsDeleted) return false;
-        if (t.isFixedCost || t.IsFixedCost) return false;
+    const settings = state.scenarioSettings || {};
+    const isScenarioActive = settings.IsScenarioModeActive || settings.isScenarioModeActive || false;
+    const housingScenario = settings.HousingScenario || settings.housingScenario || 'Rent';
 
+    const rawItems = [];
+
+    // 1. Monatskosten (Variable Transactions)
+    state.transactions.forEach(t => {
+        if (t.isDeleted || t.IsDeleted) return;
+        if (t.isFixedCost || t.IsFixedCost) return;
+        
+        rawItems.push({
+            id: t.id || t.Id,
+            title: t.title || t.Title || '',
+            amount: parseFloat(t.amount || t.Amount || 0),
+            type: 'Monatskosten',
+            category: t.category || t.Category || 'Sonstiges',
+            assignedTo: t.assignedTo || t.AssignedTo || 'Gemeinsam',
+            date: new Date(t.date || t.Date),
+            isIncome: t.isIncome !== undefined ? t.isIncome : (t.IsIncome !== undefined ? t.IsIncome : false),
+            notes: t.notes || t.Notes || ''
+        });
+    });
+
+    // 2. Fixkosten (Fixed Expenses)
+    state.transactions.forEach(t => {
+        if (t.isDeleted || t.IsDeleted) return;
+        if (!(t.isFixedCost || t.IsFixedCost)) return;
+        
+        rawItems.push({
+            id: t.id || t.Id,
+            title: t.title || t.Title || '',
+            amount: parseFloat(t.amount || t.Amount || 0),
+            type: 'Fixkosten',
+            category: t.category || t.Category || 'Sonstiges',
+            assignedTo: t.assignedTo || t.AssignedTo || 'Gemeinsam',
+            date: new Date(t.date || t.Date),
+            isIncome: t.isIncome !== undefined ? t.isIncome : (t.IsIncome !== undefined ? t.IsIncome : false),
+            notes: t.notes || t.Notes || ''
+        });
+    });
+
+    // 3. Baukosten (Building Costs)
+    if (state.buildingCosts) {
+        state.buildingCosts.forEach(b => {
+            const isPaid = b.isPaid !== undefined ? b.isPaid : (b.IsPaid !== undefined ? b.IsPaid : false);
+            const pDate = b.paymentDate || b.PaymentDate;
+            if (isPaid && pDate) {
+                rawItems.push({
+                    id: b.id || b.Id,
+                    title: `Baukosten: ${b.name || b.Name}`,
+                    amount: parseFloat(b.amount || b.Amount || 0),
+                    type: 'Baukosten',
+                    category: 'Baukosten',
+                    assignedTo: b.paidBy || b.PaidBy || 'Gemeinsam',
+                    date: new Date(pDate),
+                    isIncome: false,
+                    notes: b.notes || b.Notes || ''
+                });
+            }
+        });
+    }
+
+    // 4. Virtual Rent Shares
+    const rentAmount = parseFloat(settings.RentExpenseAmount || settings.rentExpenseAmount || 850.00);
+    const rentTotal = (isScenarioActive && housingScenario === 'House') ? 0 : rentAmount;
+
+    if (rentTotal > 0) {
+        const activeMonths = [];
+        const seen = new Set();
+        state.transactions.forEach(t => {
+            if (t.isDeleted || t.IsDeleted) return;
+            const d = new Date(t.date || t.Date);
+            const key = `${d.getFullYear()}-${d.getMonth() + 1}`;
+            if (!seen.has(key)) {
+                seen.add(key);
+                activeMonths.push({ year: d.getFullYear(), month: d.getMonth() + 1 });
+            }
+        });
+
+        const curDate = new Date();
+        const curKey = `${curDate.getFullYear()}-${curDate.getMonth() + 1}`;
+        if (!seen.has(curKey)) {
+            activeMonths.push({ year: curDate.getFullYear(), month: curDate.getMonth() + 1 });
+        }
+
+        const p1Name = state.partner1Name || "Partner 1";
+        const p2Name = state.partner2Name || "Partner 2";
+        const p1SharePercent = parseFloat(settings.RentPartner1SharePercent || settings.rentPartner1SharePercent || 50.00);
+
+        activeMonths.forEach(am => {
+            const dateVal = new Date(am.year, am.month - 1, 1);
+            const p1Share = rentTotal * (p1SharePercent / 100);
+            const p2Share = rentTotal * ((100 - p1SharePercent) / 100);
+
+            if (assignVal === 'All') {
+                rawItems.push({
+                    id: `virtual-rent-p1-${am.year}-${am.month}`,
+                    title: `Mietkosten (${p1Name}-Anteil)`,
+                    amount: p1Share,
+                    type: 'Fixkosten',
+                    category: 'Wohnen',
+                    assignedTo: 'Partner 1',
+                    date: dateVal,
+                    isIncome: false,
+                    notes: 'Anteilige Mietkosten'
+                });
+                rawItems.push({
+                    id: `virtual-rent-p2-${am.year}-${am.month}`,
+                    title: `Mietkosten (${p2Name}-Anteil)`,
+                    amount: p2Share,
+                    type: 'Fixkosten',
+                    category: 'Wohnen',
+                    assignedTo: 'Partner 2',
+                    date: dateVal,
+                    isIncome: false,
+                    notes: 'Anteilige Mietkosten'
+                });
+            }
+            else if (assignVal === 'Partner 1') {
+                rawItems.push({
+                    id: `virtual-rent-p1-${am.year}-${am.month}`,
+                    title: `Mietkosten (${p1Name}-Anteil)`,
+                    amount: p1Share,
+                    type: 'Fixkosten',
+                    category: 'Wohnen',
+                    assignedTo: 'Partner 1',
+                    date: dateVal,
+                    isIncome: false,
+                    notes: 'Anteilige Mietkosten'
+                });
+            }
+            else if (assignVal === 'Partner 2') {
+                rawItems.push({
+                    id: `virtual-rent-p2-${am.year}-${am.month}`,
+                    title: `Mietkosten (${p2Name}-Anteil)`,
+                    amount: p2Share,
+                    type: 'Fixkosten',
+                    category: 'Wohnen',
+                    assignedTo: 'Partner 2',
+                    date: dateVal,
+                    isIncome: false,
+                    notes: 'Anteilige Mietkosten'
+                });
+            }
+            else if (assignVal === 'Gemeinsam') {
+                rawItems.push({
+                    id: `virtual-rent-shared-${am.year}-${am.month}`,
+                    title: `Mietkosten (Gemeinsam)`,
+                    amount: rentTotal,
+                    type: 'Fixkosten',
+                    category: 'Wohnen',
+                    assignedTo: 'Gemeinsam',
+                    date: dateVal,
+                    isIncome: false,
+                    notes: 'Gemeinsame Mietkosten'
+                });
+            }
+        });
+    }
+
+    const filtered = rawItems.filter(item => {
         // Search text
-        const title = (t.title || t.Title || '').toLowerCase();
-        const notes = (t.notes || t.Notes || '').toLowerCase();
-        if (searchVal && !title.includes(searchVal) && !notes.includes(searchVal)) return false;
+        if (searchVal) {
+            const title = item.title.toLowerCase();
+            const notes = item.notes.toLowerCase();
+            if (!title.includes(searchVal) && !notes.includes(searchVal)) return false;
+        }
 
         // Date
-        const d = new Date(t.date || t.Date);
-        if (yearVal !== 'All' && d.getFullYear().toString() !== yearVal) return false;
-        if (monthVal !== 'All' && (d.getMonth() + 1).toString() !== monthVal) return false;
+        if (yearVal !== 'All' && item.date.getFullYear().toString() !== yearVal) return false;
+        if (monthVal !== 'All' && (item.date.getMonth() + 1).toString() !== monthVal) return false;
 
         // Category
-        const cat = t.category || t.Category || 'Sonstiges';
-        if (catVal !== 'All' && cat !== catVal) return false;
+        if (catVal !== 'All' && item.category !== catVal) return false;
+
+        // Type
+        if (typeVal !== 'All' && item.type !== typeVal) return false;
 
         // Assigned To
-        const assigned = t.assignedTo || t.AssignedTo || 'Gemeinsam';
-        if (assignVal !== 'All' && assigned !== assignVal) return false;
+        if (assignVal !== 'All' && item.assignedTo !== assignVal) return false;
 
         return true;
     });
 
     // Sort descending by date
-    filtered.sort((a, b) => new Date(b.date || b.Date) - new Date(a.date || a.Date));
+    filtered.sort((a, b) => b.date - a.date);
 
     // Calculate aggregates
-    const income = filtered.filter(t => t.isIncome || t.IsIncome).reduce((sum, t) => sum + parseFloat(t.amount || t.Amount || 0), 0);
-    const expenses = filtered.filter(t => !(t.isIncome || t.IsIncome)).reduce((sum, t) => sum + parseFloat(t.amount || t.Amount || 0), 0);
+    const income = filtered.filter(t => t.isIncome).reduce((sum, t) => sum + t.amount, 0);
+    const expenses = filtered.filter(t => !t.isIncome).reduce((sum, t) => sum + t.amount, 0);
     const surplus = income - expenses;
 
     document.getElementById('filter-transaction-count').textContent = filtered.length;
@@ -233,22 +396,20 @@ export function renderFilterableTransactions() {
     filtered.forEach(t => {
         const item = document.createElement('div');
         item.className = 'transaction-item';
-        item.style.cursor = 'pointer';
         
-        const date = new Date(t.date || t.Date);
-        const dateFormatted = date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
-        const cat = t.category || t.Category || 'Sonstiges';
+        const dateFormatted = t.date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+        const cat = t.category;
         const icon = getCategoryEmoji(cat);
-        const title = t.title || t.Title || '';
-        const amt = t.amount || t.Amount || 0;
-        const isIncome = t.isIncome !== undefined ? t.isIncome : (t.IsIncome !== undefined ? t.IsIncome : false);
+        const title = t.title;
+        const amt = t.amount;
+        const isIncome = t.isIncome;
 
         item.innerHTML = `
             <div class="transaction-left">
                 <div class="category-icon">${icon}</div>
                 <div class="transaction-details">
                     <h5 style="margin:0;">${escapeHtml(title)}</h5>
-                    <div class="subtitle" style="font-size:10px;">${dateFormatted} • ${escapeHtml(getAssignedDisplayName(t.assignedTo || t.AssignedTo))}</div>
+                    <div class="subtitle" style="font-size:10px;">${dateFormatted} • ${escapeHtml(getAssignedDisplayName(t.assignedTo))}</div>
                 </div>
             </div>
             <div class="transaction-right">
@@ -257,41 +418,135 @@ export function renderFilterableTransactions() {
                 </span>
             </div>
         `;
-        item.addEventListener('click', () => showTransactionDetails(t.id || t.Id));
+        
+        if (t.id && !t.id.toString().startsWith('virtual-rent-')) {
+            item.style.cursor = 'pointer';
+            item.addEventListener('click', () => showTransactionDetails(t.id));
+        } else {
+            item.style.cursor = 'default';
+        }
+        
         container.appendChild(item);
     });
 }
 
 // ==================== FIXED EXPENSES (FIXKOSTEN) ====================
+function isRentExpense(f) {
+    const title = (f.title || f.Title || '').toLowerCase();
+    const category = f.category || f.Category || '';
+    return category === 'Wohnen' && (title.includes('miete') || title.includes('wohnungsmiete'));
+}
+
 export function renderFixedExpenses() {
     const container = document.getElementById('fixed-expenses-list');
     if (!container) return;
     container.innerHTML = '';
 
     const list = state.fixedExpenses || [];
+    const activeLoans = (state.loans || []).filter(l => l.includeInFixedCosts !== false && l.IncludeInFixedCosts !== false);
+
+    const settings = state.scenarioSettings || {};
+    const isScenarioActive = settings.IsScenarioModeActive || settings.isScenarioModeActive || false;
+    const housingScenario = settings.HousingScenario || settings.housingScenario || 'Rent';
+    const rentAmount = parseFloat(settings.RentExpenseAmount || settings.rentExpenseAmount || 850.00);
+    
+    let housingTotal = rentAmount;
+    let housingText = "Miete (Mietwohnung)";
+    
+    if (isScenarioActive && housingScenario === 'House') {
+        const bCosts = state.buildingCosts || [];
+        housingTotal = bCosts.reduce((sum, b) => sum + parseFloat(b.amount || b.Amount || 0), 0);
+        housingText = "Baukosten (Hausbau)";
+    }
+
+    // Apply Filter based on StartDate
+    const filterMonthVal = document.getElementById('fixed-filter-month') ? document.getElementById('fixed-filter-month').value : 'All';
+    const filterYearVal = document.getElementById('fixed-filter-year') ? document.getElementById('fixed-filter-year').value : 'All';
+
+    let filteredList = [...list];
+    
+    if (filterYearVal !== 'All') {
+        const year = parseInt(filterYearVal);
+        if (filterMonthVal !== 'All') {
+            const month = parseInt(filterMonthVal);
+            filteredList = filteredList.filter(f => {
+                const startStr = f.startDate || f.StartDate;
+                if (!startStr) return true;
+                const sd = new Date(startStr);
+                return sd.getFullYear() < year || (sd.getFullYear() === year && (sd.getMonth() + 1) <= month);
+            });
+        } else {
+            filteredList = filteredList.filter(f => {
+                const startStr = f.startDate || f.StartDate;
+                if (!startStr) return true;
+                const sd = new Date(startStr);
+                return sd.getFullYear() <= year;
+            });
+        }
+    } else if (filterMonthVal !== 'All') {
+        const month = parseInt(filterMonthVal);
+        filteredList = filteredList.filter(f => {
+            const startStr = f.startDate || f.StartDate;
+            if (!startStr) return true;
+            const sd = new Date(startStr);
+            return (sd.getMonth() + 1) <= month;
+        });
+    }
 
     // Sort by day of month
-    list.sort((a, b) => parseInt(a.dayOfMonth || a.DayOfMonth || 1) - parseInt(b.dayOfMonth || b.DayOfMonth || 1));
+    filteredList.sort((a, b) => parseInt(a.dayOfMonth || a.DayOfMonth || 1) - parseInt(b.dayOfMonth || b.DayOfMonth || 1));
 
     // Calculate aggregates
-    const income = list.filter(f => f.isIncome || f.IsIncome).reduce((sum, f) => sum + parseFloat(f.amount || f.Amount || 0), 0);
-    const expenses = list.filter(f => !(f.isIncome || f.IsIncome)).reduce((sum, f) => sum + parseFloat(f.amount || f.Amount || 0), 0);
+    const income = filteredList.filter(f => f.isIncome || f.IsIncome).reduce((sum, f) => sum + parseFloat(f.amount || f.Amount || 0), 0);
+    const loanFixedExp = activeLoans.reduce((sum, l) => sum + parseFloat(l.monthlyRate || l.MonthlyRate || 0), 0);
+    const expenses = filteredList.filter(f => !(f.isIncome || f.IsIncome) && !isRentExpense(f)).reduce((sum, f) => sum + parseFloat(f.amount || f.Amount || 0), 0) + loanFixedExp + housingTotal;
     const surplus = income - expenses;
 
-    document.getElementById('fixed-expenses-count').textContent = list.length;
-    document.getElementById('fixed-total-income').textContent = `+${income.toFixed(2).replace('.', ',')} €`;
-    document.getElementById('fixed-total-expenses').textContent = `-${expenses.toFixed(2).replace('.', ',')} €`;
+    document.getElementById('fixed-expenses-count').textContent = filteredList.length + activeLoans.length + 1;
+    const incomeEl = document.getElementById('fixed-total-income');
+    if (incomeEl) incomeEl.textContent = `+${income.toFixed(2).replace('.', ',')} €`;
+    const expensesEl = document.getElementById('fixed-total-expenses');
+    if (expensesEl) expensesEl.textContent = `-${expenses.toFixed(2).replace('.', ',')} €`;
 
     const surplusEl = document.getElementById('fixed-total-surplus');
-    surplusEl.textContent = `${surplus >= 0 ? '+' : ''}${surplus.toFixed(2).replace('.', ',')} €`;
-    surplusEl.style.color = surplus >= 0 ? 'var(--color-income)' : 'var(--color-expense)';
+    if (surplusEl) {
+        surplusEl.textContent = `${surplus >= 0 ? '+' : ''}${surplus.toFixed(2).replace('.', ',')} €`;
+        surplusEl.style.color = surplus >= 0 ? 'var(--color-income)' : 'var(--color-expense)';
+    }
 
-    if (list.length === 0) {
-        container.innerHTML = `<div class="no-transactions">Keine Fixkosten-Buchungen angelegt.</div>`;
+    // Render Housing row
+    const housingItem = document.createElement('div');
+    housingItem.className = 'transaction-item';
+    housingItem.style.opacity = '0.85';
+    
+    const p1Share = parseFloat(settings.RentPartner1SharePercent || settings.rentPartner1SharePercent || 50.00);
+    const p2Share = 100.00 - p1Share;
+    const splitText = `Aufgeteilt: ${state.partner1Name} ${p1Share}% / ${state.partner2Name} ${p2Share}%`;
+    
+    housingItem.innerHTML = `
+        <div class="transaction-left">
+            <div class="category-icon">🏠</div>
+            <div class="transaction-details">
+                <h5 style="margin:0;">${escapeHtml(housingText)} <span style="font-size:10px; color:var(--accent); font-weight:normal;">(Szenario)</span></h5>
+                <div class="subtitle" style="font-size:10px;">Jeden 1. des Monats • ${escapeHtml(splitText)}</div>
+            </div>
+        </div>
+        <div class="transaction-right">
+            <span class="amount expense" style="font-weight:700;">
+                -${housingTotal.toFixed(2).replace('.', ',')} €
+            </span>
+            <div class="transaction-actions" style="margin-left:8px;">
+                <span style="font-size:10px; color:var(--text-tertiary); font-style:italic; margin-right:4px;">Automatisch</span>
+            </div>
+        </div>
+    `;
+    container.appendChild(housingItem);
+
+    if (filteredList.length === 0 && activeLoans.length === 0) {
         return;
     }
 
-    list.forEach(f => {
+    filteredList.forEach(f => {
         const item = document.createElement('div');
         item.className = 'transaction-item';
 
@@ -341,6 +596,39 @@ export function renderFixedExpenses() {
             confirmDeleteFixedExpense(f.id || f.Id);
         });
 
+        container.appendChild(item);
+    });
+
+    activeLoans.forEach(l => {
+        const item = document.createElement('div');
+        item.className = 'transaction-item';
+        item.style.opacity = '0.85';
+
+        const cat = 'Kredite';
+        const icon = '🏦';
+        const title = l.name || l.Name || 'Kreditrate';
+        const amt = l.monthlyRate || l.MonthlyRate || 0;
+        const dayDate = new Date(l.firstPaymentDate || l.FirstPaymentDate || new Date());
+        const day = isNaN(dayDate.getDate()) ? 1 : dayDate.getDate();
+        const assigned = getAssignedDisplayName(l.assignedTo || l.AssignedTo);
+
+        item.innerHTML = `
+            <div class="transaction-left">
+                <div class="category-icon">${icon}</div>
+                <div class="transaction-details">
+                    <h5 style="margin:0;">${escapeHtml(title)} <span style="font-size:10px; color:var(--accent); font-weight:normal;">(Kredit)</span></h5>
+                    <div class="subtitle" style="font-size:10px;">Jeden ${day}. des Monats • ${escapeHtml(assigned)}</div>
+                </div>
+            </div>
+            <div class="transaction-right">
+                <span class="amount expense" style="font-weight:700;">
+                    -${parseFloat(amt).toFixed(2).replace('.', ',')} €
+                </span>
+                <div class="transaction-actions" style="margin-left:8px;">
+                    <span style="font-size:10px; color:var(--text-tertiary); font-style:italic; margin-right:4px;">Automatisch</span>
+                </div>
+            </div>
+        `;
         container.appendChild(item);
     });
 }
@@ -428,6 +716,16 @@ export function renderLoans() {
                     <div class="stat-box">
                         <span class="label">Restlaufzeit</span>
                         <span class="value income" style="font-size:14px; font-weight:600;">${remainingTerm}</span>
+                    </div>
+                    <div class="stat-box">
+                        <span class="label">Zuordnung</span>
+                        <span class="value" style="font-size:14px; font-weight:500;">${escapeHtml(getAssignedDisplayName(selectedLoan.assignedTo || selectedLoan.AssignedTo))}</span>
+                    </div>
+                    <div class="stat-box">
+                        <span class="label">In Fixkosten</span>
+                        <span class="value" style="font-size:14px; font-weight:500; color: ${selectedLoan.includeInFixedCosts !== false && selectedLoan.IncludeInFixedCosts !== false ? 'var(--color-income)' : 'var(--text-tertiary)'};">
+                            ${selectedLoan.includeInFixedCosts !== false && selectedLoan.IncludeInFixedCosts !== false ? 'Ja' : 'Nein'}
+                        </span>
                     </div>
                 </div>
             </div>
