@@ -355,6 +355,9 @@ function initUI() {
         if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') {
             document.body.classList.remove('keyboard-active');
             setTimeout(handleViewportReset, 50);
+            setTimeout(handleViewportReset, 150);
+            setTimeout(handleViewportReset, 300);
+            setTimeout(handleViewportReset, 500);
         }
     });
 }
@@ -374,6 +377,17 @@ function showOverlay(overlayId) {
 function hideOverlay(overlayId) {
     const overlay = document.getElementById(overlayId);
     if (overlay) overlay.classList.remove('active');
+    
+    // Reset page viewport scroll multiple times to avoid shifted/hidden header bug
+    const handleViewportReset = () => {
+        if (window.scrollY !== 0 || window.scrollX !== 0) {
+            window.scrollTo(0, 0);
+        }
+    };
+    setTimeout(handleViewportReset, 50);
+    setTimeout(handleViewportReset, 150);
+    setTimeout(handleViewportReset, 300);
+    setTimeout(handleViewportReset, 500);
 }
 
 function updateSyncStatusIndicator(type, label) {
