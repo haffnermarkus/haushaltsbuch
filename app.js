@@ -301,64 +301,91 @@ function initUI() {
     populateCategoryDropdown();
     updatePartnerDropdowns();
 
-    // Prevent mobile keyboard from scrolling/shifting the whole viewport (pushed-up menu bug)
-    const handleViewportReset = () => {
-        if (window.scrollY !== 0 || window.scrollX !== 0) {
-            window.scrollTo(0, 0);
-        }
-    };
-    window.addEventListener('scroll', handleViewportReset, { passive: true });
+    // iOS-Tastatur-Handling für Bottom-Sheets initialisieren
+    initKeyboardAvoidance();
+}
 
-    // Handle mobile keyboard and visual viewport height changes
-    if (window.visualViewport) {
-        const handleVisualViewportResize = () => {
-            const app = document.querySelector('.app-container');
-            if (app) {
-                app.style.height = `${window.visualViewport.height}px`;
-            }
-            
-            // Scroll the active input into view inside the active bottom sheet
-            const activeInput = document.activeElement;
-            if (activeInput && (activeInput.tagName === 'INPUT' || activeInput.tagName === 'SELECT' || activeInput.tagName === 'TEXTAREA')) {
-                const sheetContent = activeInput.closest('.sheet-content');
-                if (sheetContent) {
-                    setTimeout(() => {
-                        activeInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                    }, 100);
-                }
-            }
-        };
-        
-        window.visualViewport.addEventListener('resize', handleVisualViewportResize);
-        window.visualViewport.addEventListener('scroll', handleVisualViewportResize);
-        
-        // Initial run
-        handleVisualViewportResize();
+// ==================== iOS TASTATUR-HANDLING FÜR BOTTOM-SHEETS ====================
+//
+// Idee: Statt das Sheet beim Fokussieren eines Feldes fullscreen zu machen (ruckartig,
+// schwer zu kontrollieren), messen wir über die visualViewport-API die tatsächliche
+// Höhe der eingeblendeten Tastatur und schieben NUR das aktuell offene Bottom-Sheet
+// per CSS-Variable (--kb-shift) exakt um diese Höhe nach oben. Verschwindet die
+// Tastatur wieder, liefert visualViewport automatisch kb-Höhe 0 und das Sheet
+// rutscht dank CSS-Transition sanft zurück in seine Ausgangsposition.
+function initKeyboardAvoidance() {
+    const vv = window.visualViewport;
+
+    function getActiveBottomSheet() {
+        const overlay = document.querySelector('.dialog-overlay.active:not(.popup)');
+        return overlay ? overlay.querySelector('.bottom-sheet') : null;
     }
 
-    // Also reset on input focus/blur to be extra safe on different browsers
-    document.addEventListener('focusin', (e) => {
-        if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') {
-            document.body.classList.add('keyboard-active');
-            setTimeout(handleViewportReset, 50);
-            
-            // Scroll into view inside the sheet content if applicable
-            const sheetContent = e.target.closest('.sheet-content');
-            if (sheetContent) {
-                setTimeout(() => {
-                    e.target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                }, 150);
-            }
-        }
-    });
-    document.addEventListener('focusout', (e) => {
-        if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') {
+    function applyKeyboardShift() {
+        const sheet = getActiveBottomSheet();
+        if (!sheet) {
             document.body.classList.remove('keyboard-active');
-            setTimeout(handleViewportReset, 50);
-            setTimeout(handleViewportReset, 150);
-            setTimeout(handleViewportReset, 300);
-            setTimeout(handleViewportReset, 500);
+            return;
         }
+
+        if (!vv) {
+            // Kein visualViewport verfügbar (älterer Browser) -> keine Verschiebung möglich
+            return;
+        }
+
+        // Tastaturhöhe = Layout-Viewport minus sichtbarem visuellen Viewport
+        // (inkl. offsetTop, falls iOS die Seite zusätzlich verschoben hat)
+        const keyboardHeight = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+
+        if (keyboardHeight > 60) {
+            sheet.style.setProperty('--kb-shift', `${keyboardHeight}px`);
+            document.body.classList.add('keyboard-active');
+
+            // Fokussiertes Feld innerhalb des Sheets sichtbar scrollen, NACHDEM
+            // die Verschiebung angewendet wurde (Layout ist zu diesem Zeitpunkt final)
+            const activeEl = document.activeElement;
+            if (activeEl && sheet.contains(activeEl)) {
+                requestAnimationFrame(() => {
+                    activeEl.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                });
+            }
+        } else {
+            sheet.style.setProperty('--kb-shift', '0px');
+            document.body.classList.remove('keyboard-active');
+        }
+    }
+
+    if (vv) {
+        vv.addEventListener('resize', applyKeyboardShift);
+        vv.addEventListener('scroll', applyKeyboardShift);
+    }
+
+    // Beim Fokussieren eines Feldes in einem Bottom-Sheet direkt prüfen (deckt den Fall
+    // ab, dass die Tastatur schon offen ist und nur das Feld wechselt, ohne resize-Event)
+    document.addEventListener('focusin', (e) => {
+        const tag = e.target.tagName;
+        if (tag !== 'INPUT' && tag !== 'SELECT' && tag !== 'TEXTAREA') return;
+        const sheet = e.target.closest('.bottom-sheet');
+        if (!sheet) return;
+
+        // Kurze Verzögerung, damit iOS Zeit hat, die Tastatur einzublenden,
+        // bevor wir die Höhe messen (Tastatur-Animation ~250-300ms)
+        setTimeout(applyKeyboardShift, 50);
+        setTimeout(applyKeyboardShift, 350);
+    });
+
+    // Beim Verlassen des letzten Feldes zurücksetzen (visualViewport löst dies zwar
+    // meist selbst aus, aber ein Fallback schadet nicht)
+    document.addEventListener('focusout', () => {
+        setTimeout(() => {
+            const activeEl = document.activeElement;
+            const stillInSheet = activeEl && activeEl.closest && activeEl.closest('.bottom-sheet');
+            if (!stillInSheet) {
+                const sheet = getActiveBottomSheet();
+                if (sheet) sheet.style.setProperty('--kb-shift', '0px');
+                document.body.classList.remove('keyboard-active');
+            }
+        }, 100);
     });
 }
 
@@ -376,8 +403,14 @@ function showOverlay(overlayId) {
 
 function hideOverlay(overlayId) {
     const overlay = document.getElementById(overlayId);
-    if (overlay) overlay.classList.remove('active');
-    
+    if (overlay) {
+        overlay.classList.remove('active');
+        // Verschiebung zurücksetzen, falls das Sheet mit offener Tastatur geschlossen wurde
+        const sheet = overlay.querySelector('.bottom-sheet');
+        if (sheet) sheet.style.setProperty('--kb-shift', '0px');
+    }
+    document.body.classList.remove('keyboard-active');
+
     // Reset page viewport scroll multiple times to avoid shifted/hidden header bug
     const handleViewportReset = () => {
         if (window.scrollY !== 0 || window.scrollX !== 0) {
