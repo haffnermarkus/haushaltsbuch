@@ -665,9 +665,7 @@ body, html {
 }
 
 .dialog-overlay.active .bottom-sheet {
-    /* --kb-shift wird per JS gesetzt (Höhe der eingeblendeten iOS-Tastatur in px).
-       Ohne Tastatur ist der Wert 0 und das Sheet bleibt ein normales Bottom-Sheet. */
-    transform: translateY(calc(-1 * var(--kb-shift, 0px)));
+    transform: translateY(0);
 }
 
 .sheet-header {
@@ -701,14 +699,8 @@ body, html {
     gap: 16px;
 }
 
-/* Sobald die Tastatur aktiv ist, wächst das Sheet um die Tastaturhöhe mit,
-   damit trotz Hochschiebens genug Platz für den Inhalt bleibt. */
-.keyboard-active .bottom-sheet {
-    max-height: calc(90% + var(--kb-shift, 0px));
-}
-
 .keyboard-active .sheet-content {
-    padding-bottom: 28px;
+    padding-bottom: 20px;
 }
 
 /* Popup Box Modal Overlay */

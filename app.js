@@ -307,86 +307,67 @@ function initUI() {
 
 // ==================== iOS TASTATUR-HANDLING FÜR BOTTOM-SHEETS ====================
 //
-// Idee: Statt das Sheet beim Fokussieren eines Feldes fullscreen zu machen (ruckartig,
-// schwer zu kontrollieren), messen wir über die visualViewport-API die tatsächliche
-// Höhe der eingeblendeten Tastatur und schieben NUR das aktuell offene Bottom-Sheet
-// per CSS-Variable (--kb-shift) exakt um diese Höhe nach oben. Verschwindet die
-// Tastatur wieder, liefert visualViewport automatisch kb-Höhe 0 und das Sheet
-// rutscht dank CSS-Transition sanft zurück in seine Ausgangsposition.
+// Idee: Statt das Bottom-Sheet selbst per transform zu verschieben (das verschiebt
+// JEDES Feld um denselben Betrag - Felder oben im Sheet fliegen dann über den
+// sichtbaren Bereich hinaus), schrumpfen wir den `.app-container` direkt auf die
+// tatsächliche `visualViewport`-Höhe. Da alle Dialoge/Sheets relativ zu diesem
+// Container positioniert sind, "kennt" das Sheet die Tastatur dann automatisch:
+// sein unterer Rand (bottom: 0) liegt immer exakt über der Tastatur, ganz gleich
+// welches Feld gerade fokussiert ist. Schließt sich die Tastatur, liefert
+// visualViewport wieder die volle Fensterhöhe und der Container (und damit das
+// Sheet) rutscht von selbst zurück auf 100%.
 function initKeyboardAvoidance() {
     const vv = window.visualViewport;
+    const appContainer = document.querySelector('.app-container');
 
-    function getActiveBottomSheet() {
-        const overlay = document.querySelector('.dialog-overlay.active:not(.popup)');
-        return overlay ? overlay.querySelector('.bottom-sheet') : null;
+    function applyViewportSize() {
+        if (!vv || !appContainer) return;
+
+        appContainer.style.height = `${vv.height}px`;
+
+        const keyboardHeight = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+        document.body.classList.toggle('keyboard-active', keyboardHeight > 60);
     }
 
-    function applyKeyboardShift() {
-        const sheet = getActiveBottomSheet();
-        if (!sheet) {
-            document.body.classList.remove('keyboard-active');
-            return;
-        }
+    function scrollActiveFieldIntoView() {
+        const activeEl = document.activeElement;
+        if (!activeEl) return;
+        const sheet = activeEl.closest ? activeEl.closest('.bottom-sheet') : null;
+        if (!sheet) return;
 
-        if (!vv) {
-            // Kein visualViewport verfügbar (älterer Browser) -> keine Verschiebung möglich
-            return;
-        }
-
-        // Tastaturhöhe = Layout-Viewport minus sichtbarem visuellen Viewport
-        // (inkl. offsetTop, falls iOS die Seite zusätzlich verschoben hat)
-        const keyboardHeight = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
-
-        if (keyboardHeight > 60) {
-            sheet.style.setProperty('--kb-shift', `${keyboardHeight}px`);
-            document.body.classList.add('keyboard-active');
-
-            // Fokussiertes Feld innerhalb des Sheets sichtbar scrollen, NACHDEM
-            // die Verschiebung angewendet wurde (Layout ist zu diesem Zeitpunkt final)
-            const activeEl = document.activeElement;
-            if (activeEl && sheet.contains(activeEl)) {
-                requestAnimationFrame(() => {
-                    activeEl.scrollIntoView({ block: 'center', behavior: 'smooth' });
-                });
-            }
-        } else {
-            sheet.style.setProperty('--kb-shift', '0px');
-            document.body.classList.remove('keyboard-active');
-        }
+        // 'nearest' statt 'center': scrollt nur so weit wie nötig, damit das Feld
+        // direkt oberhalb der Tastatur sichtbar wird - keine unnötige große Lücke.
+        requestAnimationFrame(() => {
+            activeEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        });
     }
 
     if (vv) {
-        vv.addEventListener('resize', applyKeyboardShift);
-        vv.addEventListener('scroll', applyKeyboardShift);
+        vv.addEventListener('resize', () => {
+            applyViewportSize();
+            scrollActiveFieldIntoView();
+        });
+        vv.addEventListener('scroll', applyViewportSize);
+        applyViewportSize();
     }
 
-    // Beim Fokussieren eines Feldes in einem Bottom-Sheet direkt prüfen (deckt den Fall
-    // ab, dass die Tastatur schon offen ist und nur das Feld wechselt, ohne resize-Event)
+    // Beim Wechsel zwischen Feldern innerhalb eines bereits offenen Sheets (Tastatur
+    // ist schon sichtbar, es gibt aber kein neues resize-Event) trotzdem nachziehen.
     document.addEventListener('focusin', (e) => {
         const tag = e.target.tagName;
         if (tag !== 'INPUT' && tag !== 'SELECT' && tag !== 'TEXTAREA') return;
-        const sheet = e.target.closest('.bottom-sheet');
-        if (!sheet) return;
+        if (!e.target.closest('.bottom-sheet')) return;
 
-        // Kurze Verzögerung, damit iOS Zeit hat, die Tastatur einzublenden,
-        // bevor wir die Höhe messen (Tastatur-Animation ~250-300ms)
-        setTimeout(applyKeyboardShift, 50);
-        setTimeout(applyKeyboardShift, 350);
+        setTimeout(scrollActiveFieldIntoView, 350);
     });
 
-    // Beim Verlassen des letzten Feldes zurücksetzen (visualViewport löst dies zwar
-    // meist selbst aus, aber ein Fallback schadet nicht)
-    document.addEventListener('focusout', () => {
-        setTimeout(() => {
-            const activeEl = document.activeElement;
-            const stillInSheet = activeEl && activeEl.closest && activeEl.closest('.bottom-sheet');
-            if (!stillInSheet) {
-                const sheet = getActiveBottomSheet();
-                if (sheet) sheet.style.setProperty('--kb-shift', '0px');
-                document.body.classList.remove('keyboard-active');
-            }
-        }, 100);
-    });
+    // Zusätzlicher Sicherheitsnetz-Reset: verhindert ein verschobenes Layout,
+    // falls iOS beim Scrollen innerhalb des Sheets die Seite selbst mitverschiebt.
+    window.addEventListener('scroll', () => {
+        if (window.scrollY !== 0 || window.scrollX !== 0) {
+            window.scrollTo(0, 0);
+        }
+    }, { passive: true });
 }
 
 // ==================== NAVIGATION SCREENS ====================
@@ -405,9 +386,6 @@ function hideOverlay(overlayId) {
     const overlay = document.getElementById(overlayId);
     if (overlay) {
         overlay.classList.remove('active');
-        // Verschiebung zurücksetzen, falls das Sheet mit offener Tastatur geschlossen wurde
-        const sheet = overlay.querySelector('.bottom-sheet');
-        if (sheet) sheet.style.setProperty('--kb-shift', '0px');
     }
     document.body.classList.remove('keyboard-active');
 
