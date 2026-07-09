@@ -357,9 +357,18 @@ function initKeyboardAvoidance() {
     document.addEventListener('focusin', (e) => {
         const tag = e.target.tagName;
         if (tag !== 'INPUT' && tag !== 'SELECT' && tag !== 'TEXTAREA') return;
-        if (!e.target.closest('.bottom-sheet')) return;
 
-        setTimeout(scrollActiveFieldIntoView, 350);
+        const sheetContent = e.target.closest('.sheet-content');
+        if (!sheetContent) return;
+
+        // Sobald ein Feld angewählt wird, scrollen wir den Container
+        // sofort smooth bis zum Anschlag nach unten. 
+        setTimeout(() => {
+            sheetContent.scrollTo({
+                top: sheetContent.scrollHeight,
+                behavior: 'smooth'
+            });
+        }, 300);
     });
 
     window.addEventListener('scroll', () => {
