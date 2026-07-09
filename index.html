@@ -536,10 +536,16 @@
             
             <form id="transaction-form" class="sheet-content">
                 <input type="hidden" id="field-id">
-                
-                <div class="form-group">
-                    <label for="field-title">Titel</label>
-                    <input type="text" id="field-title" class="form-control" placeholder="Supermarkt, Gehalt, etc." required>
+
+                <div class="form-row">
+                    <div class="form-group half">
+                        <label for="field-title">Titel</label>
+                        <input type="text" id="field-title" class="form-control" placeholder="Supermarkt, Gehalt, etc." required>
+                    </div>
+                    <div class="form-group half">
+                        <label for="field-date">Datum</label>
+                        <input type="date" id="field-date" class="form-control" required>
+                    </div>
                 </div>
                 
                 <div class="form-row">
@@ -582,16 +588,9 @@
                     </div>
                 </div>
 
-                <div class="form-row">
-                    <div class="form-group half">
-                        <label for="field-date">Datum</label>
-                        <input type="date" id="field-date" class="form-control" required>
-                    </div>
-                </div>
-
                 <div class="form-group">
                     <label for="field-notes">Notizen (optional)</label>
-                    <textarea id="field-notes" class="form-control" rows="2" placeholder="Notizen..."></textarea>
+                    <textarea id="field-notes" class="form-control compact-textarea" rows="1" placeholder="Notizen..."></textarea>
                 </div>
 
                 <div class="form-actions">
@@ -722,9 +721,15 @@
             <form id="fixed-expense-form" class="sheet-content">
                 <input type="hidden" id="fixed-field-id">
                 
-                <div class="form-group">
-                    <label for="fixed-field-title">Titel</label>
-                    <input type="text" id="fixed-field-title" class="form-control" placeholder="Miete, Gehalt, etc." required>
+                <div class="form-row">
+                    <div class="form-group half">
+                        <label for="fixed-field-title">Titel</label>
+                        <input type="text" id="fixed-field-title" class="form-control" placeholder="Miete, Gehalt, etc." required>
+                    </div>
+                    <div class="form-group half">
+                        <label for="fixed-field-startdate">Startdatum</label>
+                        <input type="date" id="fixed-field-startdate" class="form-control" required>
+                    </div>
                 </div>
                 
                 <div class="form-row">
@@ -772,15 +777,11 @@
                             <option value="Partner 2">Maren</option>
                         </select>
                     </div>
-                    <div class="form-group half">
-                        <label for="fixed-field-startdate">Startdatum</label>
-                        <input type="date" id="fixed-field-startdate" class="form-control" required>
-                    </div>
                 </div>
 
                 <div class="form-group">
                     <label for="fixed-field-notes">Notizen (optional)</label>
-                    <textarea id="fixed-field-notes" class="form-control" rows="2" placeholder="Notizen..."></textarea>
+                    <textarea id="fixed-field-notes" class="form-control compact-textarea" rows="1" placeholder="Notizen..."></textarea>
                 </div>
 
                 <div class="form-actions">
