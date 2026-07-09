@@ -715,7 +715,7 @@ body, html {
    ganz nach oben - unabhängig davon, welches Feld gerade fokussiert ist.
    --kb-top-offset lässt oben einen kleinen Rand stehen (hier anpassbar). */
 .keyboard-active .bottom-sheet {
-    height: calc(100% - var(--kb-top-offset, -20px));
+    height: calc(100% - var(--kb-top-offset, -50px));
 }
 
 .keyboard-active .sheet-content {
