@@ -303,19 +303,24 @@ function initUI() {
 
     // iOS-Tastatur-Handling für Bottom-Sheets initialisieren
     initKeyboardAvoidance();
+
+    // ==================== AUTOMATISCHES SCROLLEN BEI FOKUS ====================
+    document.querySelectorAll('.sheet-content input, .sheet-content select, .sheet-content textarea').forEach(input => {
+        input.addEventListener('focus', () => {
+            setTimeout(() => {
+                const sheetContent = document.querySelector('.sheet-content');
+                if (sheetContent) {
+                    sheetContent.scrollTo({
+                        top: sheetContent.scrollHeight,
+                        behavior: 'smooth'
+                    });
+                }
+            }, 350);
+        });
+    });
 }
 
 // ==================== iOS TASTATUR-HANDLING FÜR BOTTOM-SHEETS ====================
-//
-// Idee: Statt das Bottom-Sheet selbst per transform zu verschieben (das verschiebt
-// JEDES Feld um denselben Betrag - Felder oben im Sheet fliegen dann über den
-// sichtbaren Bereich hinaus), schrumpfen wir den `.app-container` direkt auf die
-// tatsächliche `visualViewport`-Höhe. Da alle Dialoge/Sheets relativ zu diesem
-// Container positioniert sind, "kennt" das Sheet die Tastatur dann automatisch:
-// sein unterer Rand (bottom: 0) liegt immer exakt über der Tastatur, ganz gleich
-// welches Feld gerade fokussiert ist. Schließt sich die Tastatur, liefert
-// visualViewport wieder die volle Fensterhöhe und der Container (und damit das
-// Sheet) rutscht von selbst zurück auf 100%.
 function initKeyboardAvoidance() {
     const vv = window.visualViewport;
     const appContainer = document.querySelector('.app-container');
@@ -335,8 +340,6 @@ function initKeyboardAvoidance() {
         const sheet = activeEl.closest ? activeEl.closest('.bottom-sheet') : null;
         if (!sheet) return;
 
-        // 'nearest' statt 'center': scrollt nur so weit wie nötig, damit das Feld
-        // direkt oberhalb der Tastatur sichtbar wird - keine unnötige große Lücke.
         requestAnimationFrame(() => {
             activeEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
         });
@@ -351,8 +354,6 @@ function initKeyboardAvoidance() {
         applyViewportSize();
     }
 
-    // Beim Wechsel zwischen Feldern innerhalb eines bereits offenen Sheets (Tastatur
-    // ist schon sichtbar, es gibt aber kein neues resize-Event) trotzdem nachziehen.
     document.addEventListener('focusin', (e) => {
         const tag = e.target.tagName;
         if (tag !== 'INPUT' && tag !== 'SELECT' && tag !== 'TEXTAREA') return;
@@ -361,8 +362,6 @@ function initKeyboardAvoidance() {
         setTimeout(scrollActiveFieldIntoView, 350);
     });
 
-    // Zusätzlicher Sicherheitsnetz-Reset: verhindert ein verschobenes Layout,
-    // falls iOS beim Scrollen innerhalb des Sheets die Seite selbst mitverschiebt.
     window.addEventListener('scroll', () => {
         if (window.scrollY !== 0 || window.scrollX !== 0) {
             window.scrollTo(0, 0);
@@ -389,7 +388,6 @@ function hideOverlay(overlayId) {
     }
     document.body.classList.remove('keyboard-active');
 
-    // Reset page viewport scroll multiple times to avoid shifted/hidden header bug
     const handleViewportReset = () => {
         if (window.scrollY !== 0 || window.scrollX !== 0) {
             window.scrollTo(0, 0);
@@ -464,11 +462,9 @@ async function loadTransactionsFromGoogle() {
 
     updateSyncStatusIndicator('local', 'Lade...');
     try {
-        // 1. Transactions
         let data = await downloadFileContent(state.fileId);
         state.transactions = mergeTransactions(state.transactions || [], data || []);
 
-        // 2. Fixed Expenses
         if (!state.fixedExpensesFileId) {
             state.fixedExpensesFileId = await searchFile('fixed_expenses.json');
             if (state.fixedExpensesFileId) localStorage.setItem('gdrive_fixed_expenses_file_id', state.fixedExpensesFileId);
@@ -477,23 +473,19 @@ async function loadTransactionsFromGoogle() {
             state.fixedExpenses = await downloadFileContent(state.fixedExpensesFileId) || [];
         }
 
-        // 3. Loans
         if (!state.loansFileId) {
             state.loansFileId = await searchFile('loans.json');
             if (state.loansFileId) localStorage.setItem('gdrive_loans_file_id', state.loansFileId);
         }
         if (state.loansFileId) {
             state.loans = await downloadFileContent(state.loansFileId) || [];
-            // Run calculations for each loan
             state.loans.forEach(loan => updateSingleLoanCalculations(loan));
         }
 
-        // 4. Baukosten (if file id cached)
         if (state.buildingCostsFileId) {
             state.buildingCosts = await downloadFileContent(state.buildingCostsFileId) || [];
         }
 
-        // 5. Szenarieneinstellungen (Miete, Kategorien, Partnernamen)
         if (!state.scenarioSettingsFileId) {
             state.scenarioSettingsFileId = await searchFile('scenario_settings.json');
             if (state.scenarioSettingsFileId) {
@@ -655,7 +647,6 @@ function handleTransactionSave(e) {
             trans.notes = notes;
             trans.updatedAt = new Date().toISOString();
 
-            // C# properties sync if loaded from desktop
             trans.Title = title;
             trans.Amount = amount;
             trans.IsIncome = isIncome;
@@ -679,7 +670,6 @@ function handleTransactionSave(e) {
             isDeleted: false,
             updatedAt: new Date().toISOString()
         };
-        // Also support C# property names
         newTrans.Id = newTrans.id;
         newTrans.Title = newTrans.title;
         newTrans.Amount = newTrans.amount;

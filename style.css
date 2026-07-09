@@ -714,20 +714,12 @@ body, html {
    (= geschrumpfter .app-container) fast komplett aus und rutscht dadurch fast
    ganz nach oben - unabhängig davon, welches Feld gerade fokussiert ist.
    --kb-top-offset lässt oben einen kleinen Rand stehen (hier anpassbar). */
-/* Sobald die Tastatur offen ist, hebeln wir das Sheet starr nach oben aus dem Viewport */
 .keyboard-active .bottom-sheet {
-    /* Setzt die normale Höhe zurück, damit es kompakt bleibt */
-    height: auto; 
-    max-height: 90%; 
-
-    /* Verschiebt das gesamte Sheet starr um z.B. 60px nach oben. 
-       Diesen Wert kannst du pixelgenau justieren! */
-    margin-bottom: 60px; 
+    height: calc(100% - var(--kb-top-offset, 150px));
 }
 
 .keyboard-active .sheet-content {
-    /* Ein normales Polster reicht jetzt völlig aus */
-    padding-bottom: 24px; 
+    padding-bottom: 24px;
 }
 
 /* Popup Box Modal Overlay */
