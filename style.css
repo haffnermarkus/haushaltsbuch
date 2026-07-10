@@ -648,10 +648,12 @@ body, html {
     pointer-events: auto;
 }
 
-/* Bottom Sheet Modal Sheet */
+/* Bottom Sheet Modal Sheet.
+   --kb-height wird per JS aus dem VisualViewport gesetzt (exakte Höhe der
+   iOS-Tastatur) und hebt das Sheet direkt über die Tastatur. */
 .bottom-sheet {
     position: absolute;
-    bottom: 0;
+    bottom: var(--kb-height, 0px);
     left: 0;
     width: 100%;
     max-height: 90%;
@@ -710,16 +712,25 @@ body, html {
     line-height: 1.3;
 }
 
-/* Sobald die Tastatur offen ist, füllt das Sheet den sichtbaren Bereich
-   (= geschrumpfter .app-container) fast komplett aus und rutscht dadurch fast
-   ganz nach oben - unabhängig davon, welches Feld gerade fokussiert ist.
-   --kb-top-offset lässt oben einen kleinen Rand stehen (hier anpassbar). */
+/* Tastatur offen: Das Sheet darf höchstens den Bereich oberhalb der Tastatur
+   einnehmen (kleiner Rand oben bleibt frei). Der Formularinhalt scrollt dann
+   innerhalb von .sheet-content, das fokussierte Feld wird per JS mittig
+   in den sichtbaren Bereich gescrollt. */
 .keyboard-active .bottom-sheet {
-    height: calc(100% - var(--kb-top-offset, 150px));
+    max-height: calc(100% - var(--kb-height, 0px) - 12px);
 }
 
 .keyboard-active .sheet-content {
     padding-bottom: 24px;
+}
+
+/* Zentrierte Popups (z. B. Einstellungen mit Eingabefeldern): bei offener
+   Tastatur im verbleibenden sichtbaren Bereich zentrieren statt hinter der
+   Tastatur zu verschwinden. */
+.keyboard-active .popup-box {
+    top: calc((100% - var(--kb-height, 0px)) / 2);
+    max-height: calc(100% - var(--kb-height, 0px) - 24px);
+    overflow-y: auto;
 }
 
 /* Popup Box Modal Overlay */
@@ -803,7 +814,9 @@ body, html {
     background-color: var(--bg-secondary);
     border: 1px solid var(--border-color);
     color: var(--text-primary);
-    font-size: 14px;
+    /* Mindestens 16px: bei kleinerer Schrift zoomt iOS Safari beim Fokussieren
+       automatisch hinein und die Maske verrutscht hinter die Tastatur. */
+    font-size: 16px;
     transition: border-color 0.2s, box-shadow 0.2s;
     outline: none;
 }

@@ -302,46 +302,36 @@ function initUI() {
     updatePartnerDropdowns();
 
     // iOS-Tastatur-Handling für Bottom-Sheets initialisieren
+    // (das gezielte Scrollen zum fokussierten Feld übernimmt der zentrale
+    // focusin-Handler in initKeyboardAvoidance)
     initKeyboardAvoidance();
-
-    // ==================== AUTOMATISCHES SCROLLEN BEI FOKUS ====================
-    document.querySelectorAll('.sheet-content input, .sheet-content select, .sheet-content textarea').forEach(input => {
-        input.addEventListener('focus', () => {
-            setTimeout(() => {
-                const sheetContent = document.querySelector('.sheet-content');
-                if (sheetContent) {
-                    sheetContent.scrollTo({
-                        top: sheetContent.scrollHeight,
-                        behavior: 'smooth'
-                    });
-                }
-            }, 350);
-        });
-    });
 }
 
 // ==================== iOS TASTATUR-HANDLING FÜR BOTTOM-SHEETS ====================
 function initKeyboardAvoidance() {
     const vv = window.visualViewport;
-    const appContainer = document.querySelector('.app-container');
 
     function applyViewportSize() {
-        if (!vv || !appContainer) return;
+        if (!vv) return;
 
-        appContainer.style.height = `${vv.height}px`;
-
+        // Exakte Überlappung der Tastatur mit dem Layout-Viewport.
+        // offsetTop fließt mit ein, weil iOS den sichtbaren Ausschnitt beim
+        // Fokussieren nach oben schieben kann.
         const keyboardHeight = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+
+        // CSS übernimmt die Positionierung: .bottom-sheet sitzt via
+        // bottom: var(--kb-height) direkt über der Tastatur.
+        document.documentElement.style.setProperty('--kb-height', `${Math.round(keyboardHeight)}px`);
         document.body.classList.toggle('keyboard-active', keyboardHeight > 60);
     }
 
     function scrollActiveFieldIntoView() {
         const activeEl = document.activeElement;
-        if (!activeEl) return;
-        const sheet = activeEl.closest ? activeEl.closest('.bottom-sheet') : null;
-        if (!sheet) return;
+        if (!activeEl || !activeEl.closest) return;
+        if (!activeEl.closest('.sheet-content, .popup-box')) return;
 
         requestAnimationFrame(() => {
-            activeEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+            activeEl.scrollIntoView({ block: 'center', behavior: 'smooth' });
         });
     }
 
@@ -357,20 +347,18 @@ function initKeyboardAvoidance() {
     document.addEventListener('focusin', (e) => {
         const tag = e.target.tagName;
         if (tag !== 'INPUT' && tag !== 'SELECT' && tag !== 'TEXTAREA') return;
+        if (!e.target.closest('.sheet-content, .popup-box')) return;
 
-        const sheetContent = e.target.closest('.sheet-content');
-        if (!sheetContent) return;
-
-        // Sobald ein Feld angewählt wird, scrollen wir den Container
-        // sofort smooth bis zum Anschlag nach unten. 
+        // Das fokussierte Feld mittig in den sichtbaren Bereich scrollen —
+        // NICHT pauschal ans Ende des Formulars (das hat die oberen Felder
+        // hinter der Tastatur bzw. aus dem Sichtbereich geschoben).
         setTimeout(() => {
-            sheetContent.scrollTo({
-                top: sheetContent.scrollHeight,
-                behavior: 'smooth'
-            });
+            e.target.scrollIntoView({ block: 'center', behavior: 'smooth' });
         }, 300);
     });
 
+    // iOS scrollt beim Fokussieren gern das ganze Fenster – sofort zurücksetzen,
+    // damit absolute Positionierung (Overlay/Sheet) stabil bleibt.
     window.addEventListener('scroll', () => {
         if (window.scrollY !== 0 || window.scrollX !== 0) {
             window.scrollTo(0, 0);
@@ -395,7 +383,15 @@ function hideOverlay(overlayId) {
     if (overlay) {
         overlay.classList.remove('active');
     }
+
+    // Tastatur schließen, wenn der Dialog zugeht — sonst bleibt sie offen
+    // und verdeckt den Inhalt dahinter.
+    if (document.activeElement && typeof document.activeElement.blur === 'function') {
+        document.activeElement.blur();
+    }
+
     document.body.classList.remove('keyboard-active');
+    document.documentElement.style.setProperty('--kb-height', '0px');
 
     const handleViewportReset = () => {
         if (window.scrollY !== 0 || window.scrollX !== 0) {
