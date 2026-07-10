@@ -311,18 +311,28 @@ function initUI() {
 function initKeyboardAvoidance() {
     const vv = window.visualViewport;
 
+    // Auf manchen iOS-Versionen ist der VisualViewport auch OHNE Tastatur
+    // etwas kleiner als window.innerHeight (z. B. um den Home-Indicator).
+    // Diesen konstanten Sockel messen wir als Baseline mit und ziehen ihn ab,
+    // sonst schwebt das Sheet dauerhaft über dem unteren Rand.
+    let kbBaseline = null;
+
     function applyViewportSize() {
         if (!vv) return;
 
-        // Exakte Überlappung der Tastatur mit dem Layout-Viewport.
-        // offsetTop fließt mit ein, weil iOS den sichtbaren Ausschnitt beim
-        // Fokussieren nach oben schieben kann.
-        const keyboardHeight = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+        const raw = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+        if (kbBaseline === null || raw < kbBaseline) {
+            kbBaseline = raw; // kleinster je gemessener Wert = Zustand ohne Tastatur
+        }
+
+        let keyboardHeight = raw - kbBaseline;
+        // Kleine Restwerte (Rundung, Inset-Artefakte) sind keine Tastatur.
+        if (keyboardHeight < 80) keyboardHeight = 0;
 
         // CSS übernimmt die Positionierung: .bottom-sheet sitzt via
         // bottom: var(--kb-height) direkt über der Tastatur.
         document.documentElement.style.setProperty('--kb-height', `${Math.round(keyboardHeight)}px`);
-        document.body.classList.toggle('keyboard-active', keyboardHeight > 60);
+        document.body.classList.toggle('keyboard-active', keyboardHeight > 0);
     }
 
     function scrollActiveFieldIntoView() {
@@ -331,7 +341,7 @@ function initKeyboardAvoidance() {
         if (!activeEl.closest('.sheet-content, .popup-box')) return;
 
         requestAnimationFrame(() => {
-            activeEl.scrollIntoView({ block: 'center', behavior: 'smooth' });
+            activeEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
         });
     }
 
@@ -349,11 +359,11 @@ function initKeyboardAvoidance() {
         if (tag !== 'INPUT' && tag !== 'SELECT' && tag !== 'TEXTAREA') return;
         if (!e.target.closest('.sheet-content, .popup-box')) return;
 
-        // Das fokussierte Feld mittig in den sichtbaren Bereich scrollen —
-        // NICHT pauschal ans Ende des Formulars (das hat die oberen Felder
-        // hinter der Tastatur bzw. aus dem Sichtbereich geschoben).
+        // Das fokussierte Feld nur so weit scrollen wie nötig ('nearest') —
+        // mittiges Zentrieren oder Scrollen ans Formularende lässt sonst
+        // unnötigen Leerraum zwischen Feldern und Tastatur entstehen.
         setTimeout(() => {
-            e.target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+            e.target.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
         }, 300);
     });
 

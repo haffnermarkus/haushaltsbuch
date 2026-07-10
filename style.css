@@ -211,8 +211,11 @@ body, html {
 
 /* ==================== APP HEADER ==================== */
 .app-header {
-    height: 64px;
-    padding: 0 20px;
+    /* Safe-Area oben: im Standalone-Modus (iOS-PWA) beginnt die Seite hinter
+       der Statusleiste (Uhr/Akku) — der Header rückt darunter, bleibt aber
+       als Hintergrund bis ganz oben gezogen. */
+    height: calc(64px + env(safe-area-inset-top, 0px));
+    padding: env(safe-area-inset-top, 0px) 20px 0 20px;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -284,7 +287,7 @@ body, html {
     flex: 1;
     overflow-y: auto;
     padding: 16px;
-    padding-bottom: 96px; /* Space for FAB */
+    padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px)); /* Space for FAB + Home-Indicator */
 }
 
 .app-main::-webkit-scrollbar {
@@ -606,7 +609,7 @@ body, html {
 /* ==================== FLOATING ACTION BUTTON (FAB) ==================== */
 .fab {
     position: absolute;
-    bottom: 24px;
+    bottom: calc(24px + env(safe-area-inset-bottom, 0px));
     right: 24px;
     width: 56px;
     height: 56px;
@@ -695,6 +698,8 @@ body, html {
 
 .sheet-content {
     padding: 14px 20px;
+    /* Ohne Tastatur: Platz für den iOS-Home-Indicator unter den Buttons */
+    padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px));
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
     display: flex;
@@ -717,11 +722,15 @@ body, html {
    innerhalb von .sheet-content, das fokussierte Feld wird per JS mittig
    in den sichtbaren Bereich gescrollt. */
 .keyboard-active .bottom-sheet {
-    max-height: calc(100% - var(--kb-height, 0px) - 12px);
+    /* Oben zusätzlich die Statusleiste (Safe-Area) freihalten, damit der
+       Sheet-Header nicht unter Uhr/Akku rutscht. */
+    max-height: calc(100% - var(--kb-height, 0px) - env(safe-area-inset-top, 0px) - 12px);
 }
 
 .keyboard-active .sheet-content {
-    padding-bottom: 24px;
+    /* Tastatur verdeckt den Home-Indicator — kompaktes Padding genügt,
+       damit kein toter Raum über der Tastatur entsteht. */
+    padding-bottom: 16px;
 }
 
 /* Zentrierte Popups (z. B. Einstellungen mit Eingabefeldern): bei offener
@@ -944,7 +953,7 @@ body, html {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 16px 20px;
+    padding: calc(16px + env(safe-area-inset-top, 0px)) 20px 16px 20px;
     border-bottom: 1px solid var(--border-color);
 }
 

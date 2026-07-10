@@ -1,7 +1,7 @@
 // Service Worker für Haushaltsbuch PWA
 // Cacht App-Shell für Offline-Nutzung
 
-const CACHE_NAME = 'haushaltsbuch-v9'; // v9: iOS-Tastatur-Fix (Bottom-Sheet über Tastatur, 16px Inputs)
+const CACHE_NAME = 'haushaltsbuch-v10'; // v10: Safe-Area (Statusleiste/Home-Indicator) + Tastatur-Baseline-Kalibrierung
 
 // Dateien die immer gecacht werden (App Shell)
 const APP_SHELL = [
