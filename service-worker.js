@@ -1,7 +1,7 @@
 // Service Worker für Haushaltsbuch PWA
 // Cacht App-Shell für Offline-Nutzung
 
-const CACHE_NAME = 'haushaltsbuch-v13'; // v13: Beleg-Vorschau im Vordergrund, PDF-Belege, Belege für Buchungen & Fixkosten
+const CACHE_NAME = 'haushaltsbuch-v14'; // v14: PDF-Belege werden mit PDF.js gerendert (iOS-Fix)
 
 // Dateien die immer gecacht werden (App Shell)
 const APP_SHELL = [
@@ -13,6 +13,8 @@ const APP_SHELL = [
     './state.js',
     './api.js',
     './auth.js',
+    './lib/pdf.min.js',
+    './lib/pdf.worker.min.js',
     './manifest.json',
     './icon-192.png',
     './icon-512.png'

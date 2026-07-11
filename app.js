@@ -1605,6 +1605,71 @@ async function handleInvoiceFileSelected(e) {
 
 let currentInvoiceObjectUrl = null;
 
+// PDF.js bei Bedarf nachladen (lokal aus /lib, wird vom Service Worker gecacht).
+// iOS Safari zeigt PDFs in iframes/embeds nicht zuverlässig an — deshalb
+// rendern wir die Seiten selbst auf Canvas-Elemente.
+let pdfJsLoadPromise = null;
+function loadPdfJs() {
+    if (window.pdfjsLib) return Promise.resolve();
+    if (!pdfJsLoadPromise) {
+        pdfJsLoadPromise = new Promise((resolve, reject) => {
+            const script = document.createElement('script');
+            script.src = './lib/pdf.min.js';
+            script.onload = () => {
+                window.pdfjsLib.GlobalWorkerOptions.workerSrc = './lib/pdf.worker.min.js';
+                resolve();
+            };
+            script.onerror = () => {
+                pdfJsLoadPromise = null;
+                reject(new Error('PDF.js konnte nicht geladen werden.'));
+            };
+            document.head.appendChild(script);
+        });
+    }
+    return pdfJsLoadPromise;
+}
+
+async function renderPdfPreview(blob) {
+    await loadPdfJs();
+    const container = document.getElementById('invoice-preview-pdf-pages');
+    if (!container) return;
+    container.innerHTML = '';
+    container.style.display = 'block';
+
+    const data = await blob.arrayBuffer();
+    const pdf = await window.pdfjsLib.getDocument({ data }).promise;
+    const pageCount = Math.min(pdf.numPages, 10); // Belege sind kurz; 10 Seiten reichen
+
+    const scrollBox = document.getElementById('invoice-preview-scroll');
+    const targetWidth = (scrollBox ? scrollBox.clientWidth : 360) - 8;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+    for (let p = 1; p <= pageCount; p++) {
+        const page = await pdf.getPage(p);
+        const baseViewport = page.getViewport({ scale: 1 });
+        const scale = (targetWidth / baseViewport.width) * dpr;
+        const viewport = page.getViewport({ scale });
+
+        const canvas = document.createElement('canvas');
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        canvas.style.width = '100%';
+        canvas.style.borderRadius = '8px';
+        canvas.style.marginBottom = '8px';
+        canvas.style.background = '#fff';
+
+        await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+        container.appendChild(canvas);
+    }
+
+    if (pdf.numPages > pageCount) {
+        const note = document.createElement('div');
+        note.style.cssText = 'font-size:11px; color:var(--text-tertiary); padding:4px;';
+        note.textContent = `... ${pdf.numPages - pageCount} weitere Seiten`;
+        container.appendChild(note);
+    }
+}
+
 async function openInvoicePreview() {
     const item = resolveInvoiceItem();
     if (!item) return;
@@ -1615,28 +1680,32 @@ async function openInvoicePreview() {
     const isPdf = fileName.toLowerCase().endsWith('.pdf');
 
     const img = document.getElementById('invoice-preview-img');
-    const pdfFrame = document.getElementById('invoice-preview-pdf');
+    const pdfPages = document.getElementById('invoice-preview-pdf-pages');
+    const loading = document.getElementById('invoice-preview-loading');
     const title = document.getElementById('invoice-preview-title');
     if (title) title.textContent = fileName;
-    if (img) { img.src = ''; img.style.display = isPdf ? 'none' : 'block'; }
-    if (pdfFrame) { pdfFrame.src = 'about:blank'; pdfFrame.style.display = isPdf ? 'block' : 'none'; }
+    if (img) { img.src = ''; img.style.display = 'none'; }
+    if (pdfPages) { pdfPages.innerHTML = ''; pdfPages.style.display = 'none'; }
+    if (loading) loading.style.display = 'block';
 
     showOverlay('invoice-preview-dialog');
 
-    const blob = await downloadBinaryFile(driveFileId);
-    if (!blob) {
-        if (title) title.textContent = 'Beleg konnte nicht geladen werden.';
-        return;
-    }
+    try {
+        const blob = await downloadBinaryFile(driveFileId);
+        if (!blob) throw new Error('Download fehlgeschlagen');
 
-    if (currentInvoiceObjectUrl) URL.revokeObjectURL(currentInvoiceObjectUrl);
-    if (isPdf) {
-        const pdfBlob = blob.type === 'application/pdf' ? blob : new Blob([blob], { type: 'application/pdf' });
-        currentInvoiceObjectUrl = URL.createObjectURL(pdfBlob);
-        if (pdfFrame) pdfFrame.src = currentInvoiceObjectUrl;
-    } else {
-        currentInvoiceObjectUrl = URL.createObjectURL(blob);
-        if (img) img.src = currentInvoiceObjectUrl;
+        if (isPdf) {
+            await renderPdfPreview(blob);
+        } else {
+            if (currentInvoiceObjectUrl) URL.revokeObjectURL(currentInvoiceObjectUrl);
+            currentInvoiceObjectUrl = URL.createObjectURL(blob);
+            if (img) { img.src = currentInvoiceObjectUrl; img.style.display = 'block'; }
+        }
+    } catch (err) {
+        console.error('Beleg-Vorschau fehlgeschlagen:', err);
+        if (title) title.textContent = 'Beleg konnte nicht geladen werden.';
+    } finally {
+        if (loading) loading.style.display = 'none';
     }
 }
 

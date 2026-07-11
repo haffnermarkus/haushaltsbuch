@@ -826,9 +826,12 @@
     <div id="invoice-preview-dialog" class="dialog-overlay popup">
         <div class="popup-box" style="max-width: 420px;">
             <h3 id="invoice-preview-title">Beleg</h3>
-            <div style="max-height: 55vh; overflow: auto; text-align: center; margin-bottom: 12px;">
+            <div id="invoice-preview-scroll" style="max-height: 55vh; overflow: auto; text-align: center; margin-bottom: 12px;">
                 <img id="invoice-preview-img" alt="Beleg" style="max-width: 100%; border-radius: 8px;">
-                <iframe id="invoice-preview-pdf" title="Beleg (PDF)" style="width: 100%; height: 50vh; border: none; border-radius: 8px; display: none; background: #fff;"></iframe>
+                <!-- PDFs werden mit PDF.js seitenweise auf Canvas gerendert
+                     (iOS zeigt PDFs in iframes/embeds nicht zuverlässig an) -->
+                <div id="invoice-preview-pdf-pages" style="display: none;"></div>
+                <div id="invoice-preview-loading" style="display: none; padding: 24px; color: var(--text-secondary); font-size: 13px;">Beleg wird geladen...</div>
             </div>
             <div class="popup-actions">
                 <button id="btn-invoice-remove" class="btn btn-danger">Beleg löschen</button>
