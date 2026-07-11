@@ -18,6 +18,11 @@ export const state = {
     selectedLoanId: null, // Neu: Für ausgewählten Kredit
     activeTab: 'dashboard',
     buildingCosts: [],
+    houseExpenses: [],
+    houseExpensesFileId: localStorage.getItem('gdrive_house_expenses_file_id') || null,
+    editingHouseExpenseId: null,
+    editingBuildingCostId: null,
+    selectedOverviewMonth: new Date().getMonth() + 1, // Monatsübersicht: gewählter Monat
     buildingCostsFileId: localStorage.getItem('gdrive_building_costs_file_id') || null,
     fixedExpensesFileId: localStorage.getItem('gdrive_fixed_expenses_file_id') || null, // Neu
     loansFileId: localStorage.getItem('gdrive_loans_file_id') || null, // Neu
@@ -205,6 +210,272 @@ export function loadLoansFromLocal() {
 
 export function saveLoansToLocal() {
     localStorage.setItem('local_loans', JSON.stringify(state.loans));
+}
+
+// ==================== FELD-ZUGRIFF (camelCase/PascalCase) ====================
+// Die Desktop-App schrieb historisch PascalCase, inzwischen camelCase.
+// v(obj, 'amount') liest beide Varianten.
+export function v(obj, key) {
+    if (!obj) return undefined;
+    if (obj[key] !== undefined) return obj[key];
+    const pascal = key.charAt(0).toUpperCase() + key.slice(1);
+    return obj[pascal];
+}
+
+// Setzt ein Feld in BEIDEN Schreibweisen (Kompatibilität mit alten Dateien).
+export function setV(obj, key, value) {
+    obj[key] = value;
+    const pascal = key.charAt(0).toUpperCase() + key.slice(1);
+    if (obj[pascal] !== undefined || key !== pascal) {
+        obj[pascal] = value;
+    }
+}
+
+// ==================== HAUSKOSTEN ====================
+// Standardliste identisch zur Desktop-App (GetDefaultHouseExpenses)
+export function getDefaultHouseExpenses() {
+    const mk = (name, category, amount, notes) => ({ id: generateUUID(), name, category, amount, notes });
+    return [
+        mk("Kreditrate (Zins & Tilgung)", "Finanzierung", 1250.00, "Monatliche Annuität für das Baudarlehen"),
+        mk("Instandhaltungsrücklage", "Finanzierung", 200.00, "Rücklage für zukünftige Reparaturen"),
+        mk("Strom (Heizung & Haushalt)", "Betriebskosten", 120.00, "Stromkosten inkl. Wärmepumpe/Heizung"),
+        mk("Heizung / Gas / Fernwärme", "Betriebskosten", 150.00, "Falls keine Wärmepumpe genutzt wird"),
+        mk("Wasser / Abwasser", "Betriebskosten", 60.00, "Frischwasser und Kanalgebühren"),
+        mk("Grundsteuer", "Betriebskosten", 35.00, "Vierteljährliche Abgabe (auf den Monat umgelegt)"),
+        mk("Müllabfuhr & Abfall", "Betriebskosten", 25.00, "Müllgebühren"),
+        mk("Wohngebäudeversicherung", "Betriebskosten", 45.00, "Schutz gegen Feuer, Sturm, Leitungswasser"),
+        mk("Hausratversicherung", "Betriebskosten", 15.00, "Schutz für Möbel und bewegliche Gegenstände"),
+        mk("Schornsteinfeger & Wartung", "Betriebskosten", 15.00, "Heizungswartung und Schornsteinfeger"),
+        mk("Internet / Kabelfernsehen", "Betriebskosten", 40.00, "Glasfaser- oder DSL-Anschluss"),
+        mk("GEZ / Rundfunkbeitrag", "Betriebskosten", 18.36, "Gesetzlicher Pflichtbeitrag")
+    ];
+}
+
+export function loadHouseExpensesFromLocal() {
+    const saved = localStorage.getItem('local_house_expenses');
+    if (saved) {
+        state.houseExpenses = JSON.parse(saved);
+    } else {
+        state.houseExpenses = getDefaultHouseExpenses();
+        localStorage.setItem('local_house_expenses', JSON.stringify(state.houseExpenses));
+    }
+}
+
+export function saveHouseExpensesToLocal() {
+    localStorage.setItem('local_house_expenses', JSON.stringify(state.houseExpenses));
+}
+
+// ==================== SZENARIO-HELFER ====================
+export function getScenarioValues() {
+    const s = state.scenarioSettings || {};
+    const p2Income = parseFloat(v(s, 'partner2Income') ?? 2000);
+    const useCustomEg = !!v(s, 'useCustomElterngeld');
+    const customEg = parseFloat(v(s, 'customElterngeldAmount') ?? 1300);
+    const calculatedEg = Math.min(1800, Math.max(300, Math.round(p2Income * 0.65 * 100) / 100));
+    return {
+        isActive: !!v(s, 'isScenarioModeActive'),
+        housingScenario: v(s, 'housingScenario') || 'Rent',
+        rentAmount: parseFloat(v(s, 'rentExpenseAmount') ?? 850),
+        p1SharePercent: parseFloat(v(s, 'rentPartner1SharePercent') ?? 50),
+        isBabyActive: !!v(s, 'isBabyScenarioActive'),
+        p1Income: parseFloat(v(s, 'partner1Income') ?? 2800),
+        p2Income: p2Income,
+        useCustomEg,
+        customEg,
+        calculatedEg,
+        effectiveEg: useCustomEg ? customEg : calculatedEg,
+        kindergeld: parseFloat(v(s, 'kindergeldAmount') ?? 250),
+        childExpenses: parseFloat(v(s, 'childExpenses') ?? 250)
+    };
+}
+
+export function getTotalHouseExpenses() {
+    return (state.houseExpenses || []).reduce((sum, h) => sum + parseFloat(v(h, 'amount') || 0), 0);
+}
+
+// Wohnkosten wie in der Desktop-App: im Haus-Szenario die Hauskosten-Summe, sonst Miete.
+export function getHousingTotal() {
+    const sc = getScenarioValues();
+    return (sc.isActive && sc.housingScenario === 'House') ? getTotalHouseExpenses() : sc.rentAmount;
+}
+
+function isRentTitle(title, category) {
+    return category === 'Wohnen' && (title || '').toLowerCase().includes('miete');
+}
+
+function startDateReached(entry, year, month) {
+    const raw = v(entry, 'startDate');
+    if (!raw) return true;
+    const sd = new Date(raw);
+    if (isNaN(sd.getTime())) return true;
+    return sd.getFullYear() < year || (sd.getFullYear() === year && (sd.getMonth() + 1) <= month);
+}
+
+// ==================== MONATS-BERECHNUNG (Port von GetMonthlyTotals, C#) ====================
+// partnerFilter: 'Alle' | 'Partner 1' | 'Partner 2' | 'Beide' (= Gemeinsam)
+export function computeMonthlyTotals(year, month, partnerFilter) {
+    const sc = getScenarioValues();
+    const housingTotal = getHousingTotal();
+    const childTotal = (sc.isActive && sc.isBabyActive) ? sc.childExpenses : 0;
+    const p2Salary = (sc.isActive && sc.isBabyActive) ? (sc.effectiveEg + sc.kindergeld) : sc.p2Income;
+    const p1HousingShare = housingTotal * (sc.p1SharePercent / 100);
+    const p2HousingShare = housingTotal * ((100 - sc.p1SharePercent) / 100);
+
+    // 1. Variable Buchungen des Monats
+    const varTrans = [];
+    (state.transactions || []).forEach(t => {
+        if (v(t, 'isDeleted')) return;
+        if (v(t, 'isFixedCost')) return;
+        const d = new Date(v(t, 'date'));
+        if (d.getFullYear() !== year || (d.getMonth() + 1) !== month) return;
+        varTrans.push({
+            id: v(t, 'id'),
+            title: v(t, 'title') || '',
+            amount: parseFloat(v(t, 'amount') || 0),
+            isIncome: !!v(t, 'isIncome'),
+            category: v(t, 'category') || 'Sonstiges',
+            assignedTo: v(t, 'assignedTo') || 'Gemeinsam',
+            date: d,
+            notes: v(t, 'notes') || '',
+            kind: 'var'
+        });
+    });
+
+    // Bezahlte Baukosten des Monats als Ausgaben
+    (state.buildingCosts || []).forEach(b => {
+        if (!v(b, 'isPaid')) return;
+        const pd = v(b, 'paymentDate');
+        if (!pd) return;
+        const d = new Date(pd);
+        if (isNaN(d.getTime()) || d.getFullYear() !== year || (d.getMonth() + 1) !== month) return;
+        varTrans.push({
+            id: v(b, 'id'),
+            title: `Baukosten: ${v(b, 'name') || ''}`,
+            amount: parseFloat(v(b, 'amount') || 0),
+            isIncome: false,
+            category: 'Baukosten',
+            assignedTo: v(b, 'paidBy') || 'Gemeinsam',
+            date: d,
+            notes: '',
+            kind: 'baukosten'
+        });
+    });
+
+    // 2. Fixkosten: gebuchte Transaktionen bevorzugen, sonst dynamisch schätzen
+    const savedFixed = (state.transactions || []).filter(t => {
+        if (v(t, 'isDeleted')) return false;
+        if (!v(t, 'isFixedCost')) return false;
+        const d = new Date(v(t, 'date'));
+        return d.getFullYear() === year && (d.getMonth() + 1) === month;
+    });
+    const hasSavedFixedCosts = savedFixed.length > 0;
+
+    const matchPartner = (assignedTo) => {
+        if (partnerFilter === 'Alle') return true;
+        if (partnerFilter === 'Beide') return (assignedTo || 'Gemeinsam') === 'Gemeinsam';
+        return assignedTo === partnerFilter;
+    };
+
+    let fixedInc = 0;
+    let fixedExp = 0;
+    const fixedIncomeRows = [];
+
+    // Wohn-/Kind-Anteil je Filter
+    let housingShare = housingTotal;
+    let childShare = childTotal;
+    if (partnerFilter === 'Partner 1') { housingShare = p1HousingShare; childShare = childTotal / 2; }
+    else if (partnerFilter === 'Partner 2') { housingShare = p2HousingShare; childShare = childTotal / 2; }
+
+    if (hasSavedFixedCosts) {
+        savedFixed.forEach(t => {
+            const assignedTo = v(t, 'assignedTo') || 'Gemeinsam';
+            if (!matchPartner(assignedTo)) return;
+            const amount = parseFloat(v(t, 'amount') || 0);
+            if (v(t, 'isIncome')) {
+                fixedInc += amount;
+                fixedIncomeRows.push({
+                    title: v(t, 'title') || '',
+                    amount,
+                    category: v(t, 'category') || 'Sonstiges',
+                    assignedTo,
+                    date: new Date(v(t, 'date'))
+                });
+            } else if (!isRentTitle(v(t, 'title'), v(t, 'category'))) {
+                fixedExp += amount;
+            }
+        });
+        fixedExp += housingShare + childShare;
+    } else {
+        // Dynamische Schätzung wie am PC
+        const fixedList = state.fixedExpenses || [];
+
+        // Gehälter
+        if (partnerFilter === 'Partner 1' || partnerFilter === 'Alle') {
+            if (sc.p1Income > 0) {
+                fixedInc += sc.p1Income;
+                fixedIncomeRows.push({ title: `Gehalt (${state.partner1Name})`, amount: sc.p1Income, category: 'Gehalt', assignedTo: 'Partner 1', date: new Date(year, month - 1, 1) });
+            }
+        }
+        if (partnerFilter === 'Partner 2' || partnerFilter === 'Alle') {
+            if (p2Salary > 0) {
+                const title = (sc.isActive && sc.isBabyActive) ? `Elterngeld + Kindergeld (${state.partner2Name})` : `Gehalt (${state.partner2Name})`;
+                fixedInc += p2Salary;
+                fixedIncomeRows.push({ title, amount: p2Salary, category: 'Gehalt', assignedTo: 'Partner 2', date: new Date(year, month - 1, 1) });
+            }
+        }
+
+        // Fixe Einnahmen (bei P1/P2 ohne Kategorie "Gehalt", wie am PC)
+        fixedList.forEach(f => {
+            if (!v(f, 'isIncome')) return;
+            if (!startDateReached(f, year, month)) return;
+            const assignedTo = v(f, 'assignedTo') || 'Gemeinsam';
+            if (!matchPartner(assignedTo)) return;
+            if ((partnerFilter === 'Partner 1' || partnerFilter === 'Partner 2') && (v(f, 'category') === 'Gehalt')) return;
+            const amount = parseFloat(v(f, 'amount') || 0);
+            fixedInc += amount;
+            const day = Math.min(Math.max(parseInt(v(f, 'dayOfMonth') || 1), 1), 28);
+            fixedIncomeRows.push({ title: v(f, 'title') || '', amount, category: v(f, 'category') || 'Sonstiges', assignedTo, date: new Date(year, month - 1, day) });
+        });
+
+        // Fixe Ausgaben (ohne Miet-Einträge, mit Startdatum)
+        fixedList.forEach(f => {
+            if (v(f, 'isIncome')) return;
+            if (!startDateReached(f, year, month)) return;
+            if (isRentTitle(v(f, 'title'), v(f, 'category'))) return;
+            const assignedTo = v(f, 'assignedTo') || 'Gemeinsam';
+            if (!matchPartner(assignedTo)) return;
+            fixedExp += parseFloat(v(f, 'amount') || 0);
+        });
+
+        // Kreditraten
+        (state.loans || []).forEach(l => {
+            if (v(l, 'includeInFixedCosts') === false) return;
+            const assignedTo = v(l, 'assignedTo') || 'Gemeinsam';
+            if (!matchPartner(assignedTo)) return;
+            fixedExp += parseFloat(v(l, 'monthlyRate') || 0);
+        });
+
+        fixedExp += housingShare + childShare;
+    }
+
+    // 3. Variable Buchungen nach Partner filtern
+    const filteredVar = varTrans.filter(t => matchPartner(t.assignedTo));
+    let varInc = 0, varExp = 0;
+    filteredVar.forEach(t => {
+        if (t.isIncome) varInc += t.amount;
+        else varExp += t.amount;
+    });
+
+    filteredVar.sort((a, b) => b.date - a.date);
+
+    return {
+        income: varInc + fixedInc,
+        expenses: varExp + fixedExp,
+        varTransactions: filteredVar,
+        fixedExpTotal: fixedExp,
+        fixedIncomeRows,
+        hasSavedFixedCosts
+    };
 }
 
 // ==================== LOAN SIMULATION ENGINE (C# ALIGNMENT) ====================

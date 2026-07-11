@@ -11,7 +11,12 @@ import {
     saveFixedExpensesToLocal,
     loadLoansFromLocal,
     saveLoansToLocal,
-    updateSingleLoanCalculations
+    updateSingleLoanCalculations,
+    loadHouseExpensesFromLocal,
+    saveHouseExpensesToLocal,
+    getDefaultHouseExpenses,
+    v,
+    setV
 } from './state.js';
 
 import {
@@ -25,7 +30,10 @@ import {
     searchFile,
     downloadFileContent,
     uploadFileContent,
-    createFileInGoogle
+    createFileInGoogle,
+    uploadBinaryFile,
+    downloadBinaryFile,
+    deleteDriveFile
 } from './api.js';
 
 import {
@@ -53,7 +61,9 @@ export {
     handleDisconnect,
     openFixedExpenseDialog,
     confirmDeleteFixedExpense,
-    saveLoansToGoogle
+    saveLoansToGoogle,
+    openHouseExpenseDialog,
+    openBuildingCostDialog
 };
 
 // ==================== PWA: SERVICE WORKER REGISTRIERUNG ====================
@@ -216,6 +226,78 @@ function initUI() {
     if (navBau) navBau.addEventListener('click', () => {
         switchTab('baukosten');
         hideOverlay('sidebar-menu');
+    });
+    const navMonths = document.getElementById('sidebar-nav-months');
+    if (navMonths) navMonths.addEventListener('click', () => {
+        switchTab('months');
+        hideOverlay('sidebar-menu');
+    });
+    const navHaus = document.getElementById('sidebar-nav-hauskosten');
+    if (navHaus) navHaus.addEventListener('click', () => {
+        switchTab('hauskosten');
+        hideOverlay('sidebar-menu');
+    });
+    const navSzenarien = document.getElementById('sidebar-nav-szenarien');
+    if (navSzenarien) navSzenarien.addEventListener('click', () => {
+        switchTab('szenarien');
+        hideOverlay('sidebar-menu');
+    });
+
+    // Monatsübersicht: Jahr/Person-Filter
+    ['months-year', 'months-partner'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('change', () => updateDataViews());
+    });
+
+    // Hauskosten-Dialog
+    const btnAddHk = document.getElementById('btn-add-hauskosten');
+    if (btnAddHk) btnAddHk.addEventListener('click', () => openHouseExpenseDialog());
+    const btnHkClose = document.getElementById('hk-dialog-btn-close');
+    if (btnHkClose) btnHkClose.addEventListener('click', () => hideOverlay('hauskosten-dialog'));
+    const btnHkCancel = document.getElementById('btn-hk-cancel');
+    if (btnHkCancel) btnHkCancel.addEventListener('click', () => hideOverlay('hauskosten-dialog'));
+    const hkForm = document.getElementById('hauskosten-form');
+    if (hkForm) hkForm.addEventListener('submit', handleHouseExpenseSave);
+    const btnHkDelete = document.getElementById('btn-hk-delete');
+    if (btnHkDelete) btnHkDelete.addEventListener('click', handleHouseExpenseDelete);
+
+    // Baukosten-Dialog
+    const btnAddBk = document.getElementById('btn-add-baukosten');
+    if (btnAddBk) btnAddBk.addEventListener('click', () => openBuildingCostDialog());
+    const btnBkClose = document.getElementById('bk-dialog-btn-close');
+    if (btnBkClose) btnBkClose.addEventListener('click', () => hideOverlay('baukosten-dialog'));
+    const btnBkCancel = document.getElementById('btn-bk-cancel');
+    if (btnBkCancel) btnBkCancel.addEventListener('click', () => hideOverlay('baukosten-dialog'));
+    const bkForm = document.getElementById('baukosten-form');
+    if (bkForm) bkForm.addEventListener('submit', handleBuildingCostSave);
+    const btnBkDelete = document.getElementById('btn-bk-delete');
+    if (btnBkDelete) btnBkDelete.addEventListener('click', handleBuildingCostDelete);
+    const bkStatus = document.getElementById('bk-field-status');
+    if (bkStatus) bkStatus.addEventListener('change', updateBkPaidFieldsVisibility);
+
+    // Beleg-Fotos (Baukosten)
+    const btnBkPhoto = document.getElementById('btn-bk-photo');
+    if (btnBkPhoto) btnBkPhoto.addEventListener('click', () => {
+        const fileInput = document.getElementById('bk-invoice-file');
+        if (fileInput) fileInput.click();
+    });
+    const bkFileInput = document.getElementById('bk-invoice-file');
+    if (bkFileInput) bkFileInput.addEventListener('change', handleInvoicePhotoSelected);
+    const btnBkView = document.getElementById('btn-bk-view-invoice');
+    if (btnBkView) btnBkView.addEventListener('click', openInvoicePreview);
+    const btnInvClose = document.getElementById('btn-invoice-close');
+    if (btnInvClose) btnInvClose.addEventListener('click', () => hideOverlay('invoice-preview-dialog'));
+    const btnInvRemove = document.getElementById('btn-invoice-remove');
+    if (btnInvRemove) btnInvRemove.addEventListener('click', handleInvoiceRemove);
+
+    // Offline-Warteschlange: sobald wieder Netz da ist, ausstehende Uploads nachholen
+    window.addEventListener('online', () => flushPendingUploads());
+
+    // Szenarien: Änderungen übernehmen + speichern (debounced)
+    ['sc-active', 'sc-housing', 'sc-rent', 'sc-split', 'sc-p1-income', 'sc-p2-income',
+     'sc-baby', 'sc-custom-eg', 'sc-eg-amount', 'sc-kindergeld', 'sc-child-exp'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('change', onScenarioSettingChanged);
     });
     const navSettings = document.getElementById('sidebar-nav-settings');
     if (navSettings) navSettings.addEventListener('click', () => {
@@ -430,6 +512,16 @@ function handleLocalModeStart() {
     loadTransactionsFromLocal();
     loadFixedExpensesFromLocal();
     loadLoansFromLocal();
+    loadHouseExpensesFromLocal();
+    const savedBc = localStorage.getItem('local_building_costs');
+    if (savedBc) {
+        try { state.buildingCosts = JSON.parse(savedBc); } catch (e) { /* ignorieren */ }
+    }
+    // Szenario-Einstellungen lokal laden
+    const savedSc = localStorage.getItem('local_scenario_settings');
+    if (savedSc) {
+        try { state.scenarioSettings = JSON.parse(savedSc); } catch (e) { state.scenarioSettings = {}; }
+    }
     updateDataViews();
 }
 
@@ -477,6 +569,16 @@ async function loadTransactionsFromGoogle() {
 
     updateSyncStatusIndicator('local', 'Lade...');
     try {
+        // Offline erfasste Änderungen zuerst aus dem lokalen Speicher holen,
+        // damit sie in den Merge einfließen bzw. nicht überschrieben werden.
+        const pending = getPendingUploads();
+        if (pending.transactions) {
+            const localCopy = localStorage.getItem('local_transactions');
+            if (localCopy) {
+                try { state.transactions = JSON.parse(localCopy); } catch (e) { /* ignorieren */ }
+            }
+        }
+
         let data = await downloadFileContent(state.fileId);
         state.transactions = mergeTransactions(state.transactions || [], data || []);
 
@@ -484,7 +586,10 @@ async function loadTransactionsFromGoogle() {
             state.fixedExpensesFileId = await searchFile('fixed_expenses.json');
             if (state.fixedExpensesFileId) localStorage.setItem('gdrive_fixed_expenses_file_id', state.fixedExpensesFileId);
         }
-        if (state.fixedExpensesFileId) {
+        if (pending.fixedExpenses) {
+            const localCopy = localStorage.getItem('local_fixed_expenses');
+            if (localCopy) { try { state.fixedExpenses = JSON.parse(localCopy); } catch (e) {} }
+        } else if (state.fixedExpensesFileId) {
             state.fixedExpenses = await downloadFileContent(state.fixedExpensesFileId) || [];
         }
 
@@ -492,13 +597,39 @@ async function loadTransactionsFromGoogle() {
             state.loansFileId = await searchFile('loans.json');
             if (state.loansFileId) localStorage.setItem('gdrive_loans_file_id', state.loansFileId);
         }
-        if (state.loansFileId) {
+        if (pending.loans) {
+            const localCopy = localStorage.getItem('local_loans');
+            if (localCopy) { try { state.loans = JSON.parse(localCopy); } catch (e) {} }
+            state.loans.forEach(loan => updateSingleLoanCalculations(loan));
+        } else if (state.loansFileId) {
             state.loans = await downloadFileContent(state.loansFileId) || [];
             state.loans.forEach(loan => updateSingleLoanCalculations(loan));
         }
 
-        if (state.buildingCostsFileId) {
+        if (!state.buildingCostsFileId) {
+            state.buildingCostsFileId = await searchFile('building_costs.json');
+            if (state.buildingCostsFileId) localStorage.setItem('gdrive_building_costs_file_id', state.buildingCostsFileId);
+        }
+        if (pending.buildingCosts) {
+            const localCopy = localStorage.getItem('local_building_costs');
+            if (localCopy) { try { state.buildingCosts = JSON.parse(localCopy); } catch (e) {} }
+        } else if (state.buildingCostsFileId) {
             state.buildingCosts = await downloadFileContent(state.buildingCostsFileId) || [];
+        }
+
+        if (!state.houseExpensesFileId) {
+            state.houseExpensesFileId = await searchFile('house_expenses.json');
+            if (state.houseExpensesFileId) localStorage.setItem('gdrive_house_expenses_file_id', state.houseExpensesFileId);
+        }
+        if (pending.houseExpenses) {
+            const localCopy = localStorage.getItem('local_house_expenses');
+            if (localCopy) { try { state.houseExpenses = JSON.parse(localCopy); } catch (e) {} }
+        } else if (state.houseExpensesFileId) {
+            state.houseExpenses = await downloadFileContent(state.houseExpensesFileId) || [];
+        }
+        if (!state.houseExpenses || state.houseExpenses.length === 0) {
+            // Wie am PC: leere Liste mit Standardpositionen vorbelegen
+            state.houseExpenses = getDefaultHouseExpenses();
         }
 
         if (!state.scenarioSettingsFileId) {
@@ -507,7 +638,10 @@ async function loadTransactionsFromGoogle() {
                 localStorage.setItem('gdrive_scenario_settings_file_id', state.scenarioSettingsFileId);
             }
         }
-        if (state.scenarioSettingsFileId) {
+        if (pending.scenarioSettings) {
+            const localCopy = localStorage.getItem('local_scenario_settings');
+            if (localCopy) { try { state.scenarioSettings = JSON.parse(localCopy); } catch (e) {} }
+        } else if (state.scenarioSettingsFileId) {
             let settings = await downloadFileContent(state.scenarioSettingsFileId);
             if (settings) {
                 state.scenarioSettings = settings;
@@ -525,6 +659,9 @@ async function loadTransactionsFromGoogle() {
 
         updateSyncStatusIndicator('connected', 'Google Drive');
         updateDataViews();
+
+        // Offline vorgemerkte Änderungen jetzt hochladen
+        flushPendingUploads();
     } catch (err) {
         updateSyncStatusIndicator('local', 'Fehler');
         console.error("Drive Download Error:", err);
@@ -542,14 +679,15 @@ async function saveTransactionsToGoogle() {
 
         let success = await uploadFileContent(state.fileId, state.transactions);
         if (success) {
+            setPendingFlag('transactions', false);
             updateSyncStatusIndicator('connected', 'Google Drive');
             updateDataViews();
         } else {
             throw new Error("Fehler beim Hochladen auf Google Drive.");
         }
     } catch (err) {
-        updateSyncStatusIndicator('local', 'Fehler');
-        alert(`Drive Sync Error: ${err.message}`);
+        console.warn('Drive Sync fehlgeschlagen, Änderung wird lokal vorgemerkt:', err);
+        markOffline('transactions');
     }
 }
 
@@ -748,7 +886,7 @@ function handleTransactionDeleteConfirmed() {
 function switchTab(tabId) {
     state.activeTab = tabId;
 
-    const tabs = ['dashboard', 'transactions', 'fixed-expenses', 'loans', 'baukosten'];
+    const tabs = ['dashboard', 'transactions', 'months', 'fixed-expenses', 'loans', 'baukosten', 'hauskosten', 'szenarien'];
     tabs.forEach(tab => {
         const navEl = document.getElementById(`sidebar-nav-${tab}`);
         if (navEl) navEl.classList.toggle('active', tabId === tab);
@@ -759,7 +897,7 @@ function switchTab(tabId) {
 
     const btnAdd = document.getElementById('btn-add-transaction');
     if (btnAdd) {
-        btnAdd.style.display = (tabId === 'dashboard' || tabId === 'transactions') ? 'flex' : 'none';
+        btnAdd.style.display = (tabId === 'dashboard' || tabId === 'transactions' || tabId === 'months') ? 'flex' : 'none';
     }
 
     if (tabId === 'baukosten') {
@@ -774,7 +912,10 @@ async function loadBuildingCostsFromGoogle() {
     if (!listContainer) return;
 
     if (state.mode !== 'google') {
-        listContainer.innerHTML = `<div class="info-box">Baukosten können nur im Google Drive-Modus angezeigt werden.</div>`;
+        // Lokal-Modus: aus dem lokalen Speicher laden
+        const saved = localStorage.getItem('local_building_costs');
+        state.buildingCosts = saved ? JSON.parse(saved) : (state.buildingCosts || []);
+        renderBuildingCosts();
         return;
     }
 
@@ -808,20 +949,24 @@ async function saveFixedExpensesToGoogle() {
         }
     }
 
-    if (!state.fixedExpensesFileId) return;
+    if (!state.fixedExpensesFileId) {
+        markOffline('fixedExpenses');
+        return;
+    }
 
     updateSyncStatusIndicator('local', 'Synchronisiere...');
     try {
         let success = await uploadFileContent(state.fixedExpensesFileId, state.fixedExpenses);
         if (success) {
+            setPendingFlag('fixedExpenses', false);
             updateSyncStatusIndicator('connected', 'Google Drive');
             updateDataViews();
         } else {
             throw new Error("Fehler beim Hochladen der Fixkosten.");
         }
     } catch (err) {
-        updateSyncStatusIndicator('local', 'Fehler');
-        console.error("Fixed Expenses Sync Error:", err);
+        console.warn("Fixed Expenses Sync fehlgeschlagen, wird vorgemerkt:", err);
+        markOffline('fixedExpenses');
     }
 }
 
@@ -835,12 +980,16 @@ async function saveLoansToGoogle() {
         }
     }
 
-    if (!state.loansFileId) return;
+    if (!state.loansFileId) {
+        markOffline('loans');
+        return;
+    }
 
     updateSyncStatusIndicator('local', 'Synchronisiere...');
     try {
         let success = await uploadFileContent(state.loansFileId, state.loans);
         if (success) {
+            setPendingFlag('loans', false);
             updateSyncStatusIndicator('connected', 'Google Drive');
             state.loans.forEach(loan => updateSingleLoanCalculations(loan));
             updateDataViews();
@@ -848,8 +997,8 @@ async function saveLoansToGoogle() {
             throw new Error("Fehler beim Hochladen der Kredite.");
         }
     } catch (err) {
-        updateSyncStatusIndicator('local', 'Fehler');
-        console.error("Loans Sync Error:", err);
+        console.warn("Loans Sync fehlgeschlagen, wird vorgemerkt:", err);
+        markOffline('loans');
     }
 }
 
@@ -1050,4 +1199,533 @@ function handleAddSondertilgung() {
         saveLoansToLocal();
         renderLoans();
     }
+}
+
+// ==================== HAUSKOSTEN (CRUD + SYNC) ====================
+async function saveHouseExpensesToGoogle() {
+    if (!state.houseExpensesFileId) {
+        state.houseExpensesFileId = await searchFile('house_expenses.json');
+        if (!state.houseExpensesFileId) {
+            state.houseExpensesFileId = await createFileInGoogle('house_expenses.json', state.houseExpenses);
+            if (state.houseExpensesFileId) localStorage.setItem('gdrive_house_expenses_file_id', state.houseExpensesFileId);
+        }
+    }
+    if (!state.houseExpensesFileId) {
+        markOffline('houseExpenses');
+        return;
+    }
+
+    updateSyncStatusIndicator('local', 'Synchronisiere...');
+    try {
+        const success = await uploadFileContent(state.houseExpensesFileId, state.houseExpenses);
+        if (success) {
+            setPendingFlag('houseExpenses', false);
+            updateSyncStatusIndicator('connected', 'Google Drive');
+            updateDataViews();
+        } else {
+            throw new Error('Fehler beim Hochladen der Hauskosten.');
+        }
+    } catch (err) {
+        console.warn('House Expenses Sync fehlgeschlagen, wird vorgemerkt:', err);
+        markOffline('houseExpenses');
+    }
+}
+
+function persistHouseExpenses() {
+    if (state.mode === 'google') {
+        saveHouseExpensesToGoogle();
+    } else {
+        saveHouseExpensesToLocal();
+        updateDataViews();
+    }
+}
+
+function openHouseExpenseDialog(id = null) {
+    state.editingHouseExpenseId = id;
+
+    document.getElementById('hk-field-name').value = '';
+    document.getElementById('hk-field-amount').value = '';
+    document.getElementById('hk-field-category').value = 'Betriebskosten';
+    document.getElementById('hk-field-notes').value = '';
+    document.getElementById('btn-hk-delete').style.display = 'none';
+
+    if (id) {
+        document.getElementById('hk-dialog-title').textContent = 'Hauskosten bearbeiten';
+        const item = (state.houseExpenses || []).find(h => (v(h, 'id')) === id);
+        if (item) {
+            document.getElementById('hk-field-name').value = v(item, 'name') || '';
+            document.getElementById('hk-field-amount').value = parseFloat(v(item, 'amount') || 0);
+            document.getElementById('hk-field-category').value = v(item, 'category') || 'Betriebskosten';
+            document.getElementById('hk-field-notes').value = v(item, 'notes') || '';
+            document.getElementById('btn-hk-delete').style.display = 'block';
+        }
+    } else {
+        document.getElementById('hk-dialog-title').textContent = 'Neue Hauskosten-Position';
+    }
+
+    showOverlay('hauskosten-dialog');
+}
+
+function handleHouseExpenseSave(e) {
+    e.preventDefault();
+
+    const name = document.getElementById('hk-field-name').value.trim();
+    const amount = parseFloat(document.getElementById('hk-field-amount').value);
+    const category = document.getElementById('hk-field-category').value;
+    const notes = document.getElementById('hk-field-notes').value.trim();
+
+    if (!name || isNaN(amount) || amount < 0) {
+        alert('Bitte Bezeichnung und einen gültigen Betrag angeben.');
+        return;
+    }
+
+    if (state.editingHouseExpenseId) {
+        const item = (state.houseExpenses || []).find(h => (v(h, 'id')) === state.editingHouseExpenseId);
+        if (item) {
+            setV(item, 'name', name);
+            setV(item, 'amount', amount);
+            setV(item, 'category', category);
+            setV(item, 'notes', notes);
+        }
+    } else {
+        state.houseExpenses.push({ id: generateUUID(), name, amount, category, notes });
+    }
+
+    persistHouseExpenses();
+    hideOverlay('hauskosten-dialog');
+    state.editingHouseExpenseId = null;
+}
+
+function handleHouseExpenseDelete() {
+    const id = state.editingHouseExpenseId;
+    if (!id) return;
+    const idx = (state.houseExpenses || []).findIndex(h => (v(h, 'id')) === id);
+    if (idx !== -1 && window.confirm('Diese Hauskosten-Position wirklich löschen?')) {
+        state.houseExpenses.splice(idx, 1);
+        persistHouseExpenses();
+        hideOverlay('hauskosten-dialog');
+        state.editingHouseExpenseId = null;
+    }
+}
+
+// ==================== BAUKOSTEN (CRUD + SYNC) ====================
+const DEFAULT_BK_CATEGORIES = ['Planung', 'Grundstück', 'Rohbau', 'Ausbaustufe 1', 'Ausbaustufe 2', 'Ausbaustufe 3', 'Ausbaustufe 4', 'Einrichtung', 'Gartengestaltung'];
+
+async function saveBuildingCostsToGoogle() {
+    if (!state.buildingCostsFileId) {
+        state.buildingCostsFileId = await searchFile('building_costs.json');
+        if (!state.buildingCostsFileId) {
+            state.buildingCostsFileId = await createFileInGoogle('building_costs.json', state.buildingCosts);
+            if (state.buildingCostsFileId) localStorage.setItem('gdrive_building_costs_file_id', state.buildingCostsFileId);
+        }
+    }
+    if (!state.buildingCostsFileId) {
+        markOffline('buildingCosts');
+        return;
+    }
+
+    updateSyncStatusIndicator('local', 'Synchronisiere...');
+    try {
+        const success = await uploadFileContent(state.buildingCostsFileId, state.buildingCosts);
+        if (success) {
+            setPendingFlag('buildingCosts', false);
+            updateSyncStatusIndicator('connected', 'Google Drive');
+            updateDataViews();
+        } else {
+            throw new Error('Fehler beim Hochladen der Baukosten.');
+        }
+    } catch (err) {
+        console.warn('Building Costs Sync fehlgeschlagen, wird vorgemerkt:', err);
+        markOffline('buildingCosts');
+    }
+}
+
+function persistBuildingCosts() {
+    if (state.mode === 'google') {
+        saveBuildingCostsToGoogle();
+    } else {
+        localStorage.setItem('local_building_costs', JSON.stringify(state.buildingCosts));
+        updateDataViews();
+    }
+}
+
+function populateBkCategoryDropdown() {
+    const select = document.getElementById('bk-field-category');
+    if (!select) return;
+    const cats = [...DEFAULT_BK_CATEGORIES];
+    (state.buildingCosts || []).forEach(b => {
+        const c = v(b, 'category');
+        if (c && !cats.includes(c)) cats.push(c);
+    });
+    select.innerHTML = cats.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
+}
+
+function updateBkPaidFieldsVisibility() {
+    const isPaid = document.getElementById('bk-field-status').value === 'paid';
+    document.getElementById('bk-field-paidby').closest('.form-group').style.opacity = isPaid ? '1' : '0.4';
+    document.getElementById('bk-field-paydate').closest('.form-group').style.opacity = isPaid ? '1' : '0.4';
+    document.getElementById('bk-field-paidby').disabled = !isPaid;
+    document.getElementById('bk-field-paydate').disabled = !isPaid;
+}
+
+function openBuildingCostDialog(id = null) {
+    state.editingBuildingCostId = id;
+    populateBkCategoryDropdown();
+
+    // Partnernamen in der Auswahl aktualisieren
+    const paidBySelect = document.getElementById('bk-field-paidby');
+    if (paidBySelect) {
+        const p1 = paidBySelect.querySelector('option[value="Partner 1"]');
+        if (p1) p1.textContent = state.partner1Name;
+        const p2 = paidBySelect.querySelector('option[value="Partner 2"]');
+        if (p2) p2.textContent = state.partner2Name;
+    }
+
+    const nameInput = document.getElementById('bk-field-name');
+    nameInput.value = '';
+    nameInput.readOnly = false;
+    document.getElementById('bk-field-amount').value = '';
+    document.getElementById('bk-field-status').value = 'open';
+    document.getElementById('bk-field-paidby').value = 'Gemeinsam';
+    document.getElementById('bk-field-paydate').value = new Date().toISOString().substring(0, 10);
+    document.getElementById('btn-bk-delete').style.display = 'none';
+
+    // Beleg-Bereich zurücksetzen
+    const invoiceGroup = document.getElementById('bk-invoice-group');
+    const btnViewInvoice = document.getElementById('btn-bk-view-invoice');
+    const invoiceStatus = document.getElementById('bk-invoice-status');
+    const btnPhoto = document.getElementById('btn-bk-photo');
+    if (invoiceGroup) {
+        // Fotos brauchen Drive (Ablage) und einen gespeicherten Eintrag (Zuordnung)
+        const canPhoto = state.mode === 'google' && !!id;
+        invoiceGroup.style.display = 'block';
+        btnPhoto.disabled = !canPhoto;
+        btnViewInvoice.style.display = 'none';
+        if (!id) {
+            invoiceStatus.textContent = 'Eintrag zuerst speichern, dann Beleg anhängen.';
+        } else if (state.mode !== 'google') {
+            invoiceStatus.textContent = 'Belege sind nur im Google-Drive-Modus verfügbar.';
+        } else {
+            invoiceStatus.textContent = 'Noch kein Beleg angehängt.';
+        }
+    }
+
+    if (id) {
+        document.getElementById('bk-dialog-title').textContent = 'Baukosten bearbeiten';
+        const item = (state.buildingCosts || []).find(b => (v(b, 'id')) === id);
+        if (item) {
+            const category = v(item, 'category') || 'Planung';
+            const name = v(item, 'name') || '';
+            nameInput.value = name;
+            document.getElementById('bk-field-amount').value = parseFloat(v(item, 'amount') || 0);
+            document.getElementById('bk-field-category').value = category;
+            document.getElementById('bk-field-status').value = v(item, 'isPaid') ? 'paid' : 'open';
+            document.getElementById('bk-field-paidby').value = v(item, 'paidBy') || 'Gemeinsam';
+            const pd = v(item, 'paymentDate');
+            if (pd) {
+                const d = new Date(pd);
+                if (!isNaN(d.getTime())) document.getElementById('bk-field-paydate').value = d.toISOString().substring(0, 10);
+            }
+
+            // Grundstück-Positionen sind am PC berechnet/geschützt:
+            // Steuer/Notar/Grundbuch nicht umbenennen, Grundstück nie löschen.
+            const isCalculated = category === 'Grundstück' && !name.includes('Kaufpreis');
+            nameInput.readOnly = isCalculated;
+            document.getElementById('btn-bk-delete').style.display = category === 'Grundstück' ? 'none' : 'block';
+
+            // Vorhandenen Beleg anzeigen
+            const driveFileId = v(item, 'invoiceDriveFileId');
+            if (driveFileId && state.mode === 'google') {
+                document.getElementById('btn-bk-view-invoice').style.display = 'block';
+                document.getElementById('bk-invoice-status').textContent = v(item, 'invoiceFileName') || 'Beleg vorhanden';
+            }
+        }
+    } else {
+        document.getElementById('bk-dialog-title').textContent = 'Neuer Baukosten-Eintrag';
+    }
+
+    updateBkPaidFieldsVisibility();
+    showOverlay('baukosten-dialog');
+}
+
+function handleBuildingCostSave(e) {
+    e.preventDefault();
+
+    const name = document.getElementById('bk-field-name').value.trim();
+    const amount = parseFloat(document.getElementById('bk-field-amount').value);
+    const category = document.getElementById('bk-field-category').value;
+    const isPaid = document.getElementById('bk-field-status').value === 'paid';
+    const paidBy = document.getElementById('bk-field-paidby').value;
+    const payDateStr = document.getElementById('bk-field-paydate').value;
+
+    if (!name || isNaN(amount) || amount < 0) {
+        alert('Bitte Bezeichnung und einen gültigen Betrag angeben.');
+        return;
+    }
+
+    const paymentDate = isPaid && payDateStr ? new Date(payDateStr).toISOString() : null;
+
+    if (state.editingBuildingCostId) {
+        const item = (state.buildingCosts || []).find(b => (v(b, 'id')) === state.editingBuildingCostId);
+        if (item) {
+            setV(item, 'name', name);
+            setV(item, 'amount', amount);
+            setV(item, 'category', category);
+            setV(item, 'isPaid', isPaid);
+            setV(item, 'paidBy', paidBy);
+            setV(item, 'paymentDate', paymentDate);
+        }
+    } else {
+        state.buildingCosts.push({
+            id: generateUUID(),
+            name,
+            amount,
+            category,
+            isPaid,
+            paidBy,
+            paymentDate
+        });
+    }
+
+    persistBuildingCosts();
+    hideOverlay('baukosten-dialog');
+    state.editingBuildingCostId = null;
+}
+
+function handleBuildingCostDelete() {
+    const id = state.editingBuildingCostId;
+    if (!id) return;
+    const idx = (state.buildingCosts || []).findIndex(b => (v(b, 'id')) === id);
+    if (idx !== -1 && window.confirm('Diesen Baukosten-Eintrag wirklich löschen?')) {
+        state.buildingCosts.splice(idx, 1);
+        persistBuildingCosts();
+        hideOverlay('baukosten-dialog');
+        state.editingBuildingCostId = null;
+    }
+}
+
+// ==================== BELEG-FOTOS (BAUKOSTEN) ====================
+// Foto vor dem Upload verkleinern (max. 1600px, JPEG) — spart Drive-Platz und Upload-Zeit.
+async function compressImage(file, maxDim = 1600, quality = 0.8) {
+    try {
+        const bitmap = await createImageBitmap(file);
+        const scale = Math.min(1, maxDim / Math.max(bitmap.width, bitmap.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(bitmap.width * scale);
+        canvas.height = Math.round(bitmap.height * scale);
+        canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+        const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', quality));
+        return blob || file;
+    } catch (e) {
+        console.warn('Bild-Komprimierung fehlgeschlagen, Original wird verwendet:', e);
+        return file;
+    }
+}
+
+async function handleInvoicePhotoSelected(e) {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = ''; // erneute Auswahl derselben Datei ermöglichen
+    if (!file || !state.editingBuildingCostId || state.mode !== 'google') return;
+
+    const item = (state.buildingCosts || []).find(b => (v(b, 'id')) === state.editingBuildingCostId);
+    if (!item) return;
+
+    const statusEl = document.getElementById('bk-invoice-status');
+    if (statusEl) statusEl.textContent = 'Beleg wird hochgeladen...';
+
+    try {
+        const blob = await compressImage(file);
+        const safeName = (v(item, 'name') || 'beleg').replace(/[^a-zA-Z0-9äöüÄÖÜß_-]/g, '_').substring(0, 40);
+        const fileName = `beleg_${safeName}_${new Date().toISOString().substring(0, 10)}.jpg`;
+
+        // Alten Beleg ersetzen
+        const oldId = v(item, 'invoiceDriveFileId');
+
+        const driveId = await uploadBinaryFile(fileName, blob, 'image/jpeg');
+        if (!driveId) throw new Error('Upload fehlgeschlagen');
+
+        if (oldId) {
+            deleteDriveFile(oldId); // Aufräumen, Fehler unkritisch
+        }
+
+        setV(item, 'invoiceDriveFileId', driveId);
+        setV(item, 'invoiceFileName', fileName);
+        persistBuildingCosts();
+
+        if (statusEl) statusEl.textContent = fileName;
+        document.getElementById('btn-bk-view-invoice').style.display = 'block';
+    } catch (err) {
+        console.error('Beleg-Upload fehlgeschlagen:', err);
+        if (statusEl) statusEl.textContent = 'Upload fehlgeschlagen — bitte erneut versuchen.';
+    }
+}
+
+let currentInvoiceObjectUrl = null;
+
+async function openInvoicePreview() {
+    const item = (state.buildingCosts || []).find(b => (v(b, 'id')) === state.editingBuildingCostId);
+    if (!item) return;
+    const driveFileId = v(item, 'invoiceDriveFileId');
+    if (!driveFileId) return;
+
+    const img = document.getElementById('invoice-preview-img');
+    const title = document.getElementById('invoice-preview-title');
+    if (title) title.textContent = v(item, 'invoiceFileName') || 'Beleg';
+    if (img) img.src = '';
+
+    showOverlay('invoice-preview-dialog');
+
+    const blob = await downloadBinaryFile(driveFileId);
+    if (blob && img) {
+        if (currentInvoiceObjectUrl) URL.revokeObjectURL(currentInvoiceObjectUrl);
+        currentInvoiceObjectUrl = URL.createObjectURL(blob);
+        img.src = currentInvoiceObjectUrl;
+    } else if (img) {
+        img.alt = 'Beleg konnte nicht geladen werden.';
+    }
+}
+
+async function handleInvoiceRemove() {
+    const item = (state.buildingCosts || []).find(b => (v(b, 'id')) === state.editingBuildingCostId);
+    if (!item) return;
+    if (!window.confirm('Beleg wirklich löschen?')) return;
+
+    const driveFileId = v(item, 'invoiceDriveFileId');
+    if (driveFileId) {
+        await deleteDriveFile(driveFileId);
+    }
+    setV(item, 'invoiceDriveFileId', null);
+    setV(item, 'invoiceFileName', null);
+    persistBuildingCosts();
+
+    hideOverlay('invoice-preview-dialog');
+    document.getElementById('btn-bk-view-invoice').style.display = 'none';
+    document.getElementById('bk-invoice-status').textContent = 'Noch kein Beleg angehängt.';
+}
+
+// ==================== OFFLINE-WARTESCHLANGE ====================
+// Schlägt ein Drive-Upload fehl (z. B. auf der Baustelle ohne Netz), werden die
+// Daten lokal gesichert und beim nächsten Online-Gehen bzw. App-Start nachgeladen.
+const PENDING_KEY = 'pending_uploads';
+
+function getPendingUploads() {
+    try { return JSON.parse(localStorage.getItem(PENDING_KEY)) || {}; } catch (e) { return {}; }
+}
+
+function setPendingFlag(kind, on) {
+    const pending = getPendingUploads();
+    if (on) pending[kind] = true; else delete pending[kind];
+    localStorage.setItem(PENDING_KEY, JSON.stringify(pending));
+}
+
+function persistLocalCopy(kind) {
+    switch (kind) {
+        case 'transactions': saveTransactionsToLocal(); break;
+        case 'fixedExpenses': saveFixedExpensesToLocal(); break;
+        case 'loans': saveLoansToLocal(); break;
+        case 'houseExpenses': saveHouseExpensesToLocal(); break;
+        case 'buildingCosts': localStorage.setItem('local_building_costs', JSON.stringify(state.buildingCosts)); break;
+        case 'scenarioSettings': localStorage.setItem('local_scenario_settings', JSON.stringify(state.scenarioSettings)); break;
+    }
+}
+
+function markOffline(kind) {
+    persistLocalCopy(kind);
+    setPendingFlag(kind, true);
+    updateSyncStatusIndicator('local', 'Offline – ausstehend');
+    updateDataViews();
+}
+
+export async function flushPendingUploads() {
+    if (state.mode !== 'google' || !state.accessToken || !navigator.onLine) return;
+    const pending = getPendingUploads();
+    const kinds = Object.keys(pending);
+    if (kinds.length === 0) return;
+
+    updateSyncStatusIndicator('local', 'Hole Sync nach...');
+    for (const kind of kinds) {
+        try {
+            if (kind === 'transactions') await saveTransactionsToGoogle();
+            else if (kind === 'fixedExpenses') await saveFixedExpensesToGoogle();
+            else if (kind === 'loans') await saveLoansToGoogle();
+            else if (kind === 'houseExpenses') await saveHouseExpensesToGoogle();
+            else if (kind === 'buildingCosts') await saveBuildingCostsToGoogle();
+            else if (kind === 'scenarioSettings') await saveScenarioSettingsToGoogle();
+        } catch (e) {
+            console.warn(`Nachholen von ${kind} fehlgeschlagen, bleibt in der Warteschlange.`, e);
+        }
+    }
+}
+
+// ==================== SZENARIO-EINSTELLUNGEN ====================
+let scenarioSaveTimer = null;
+
+async function saveScenarioSettingsToGoogle() {
+    if (!state.scenarioSettingsFileId) {
+        state.scenarioSettingsFileId = await searchFile('scenario_settings.json');
+        if (!state.scenarioSettingsFileId) {
+            state.scenarioSettingsFileId = await createFileInGoogle('scenario_settings.json', state.scenarioSettings);
+            if (state.scenarioSettingsFileId) localStorage.setItem('gdrive_scenario_settings_file_id', state.scenarioSettingsFileId);
+        }
+    }
+    if (!state.scenarioSettingsFileId) {
+        markOffline('scenarioSettings');
+        return;
+    }
+
+    try {
+        const success = await uploadFileContent(state.scenarioSettingsFileId, state.scenarioSettings);
+        const statusEl = document.getElementById('sc-save-status');
+        if (success) {
+            setPendingFlag('scenarioSettings', false);
+            if (statusEl) statusEl.textContent = `Gespeichert ${new Date().toLocaleTimeString('de-DE')}`;
+        } else {
+            markOffline('scenarioSettings');
+            if (statusEl) statusEl.textContent = 'Offline gespeichert — wird nachsynchronisiert';
+        }
+    } catch (err) {
+        console.warn('Scenario Settings Sync fehlgeschlagen, wird vorgemerkt:', err);
+        markOffline('scenarioSettings');
+        const statusEl = document.getElementById('sc-save-status');
+        if (statusEl) statusEl.textContent = 'Offline gespeichert — wird nachsynchronisiert';
+    }
+}
+
+function onScenarioSettingChanged() {
+    const s = state.scenarioSettings || (state.scenarioSettings = {});
+
+    const num = (id, fallback) => {
+        const val = parseFloat(document.getElementById(id).value);
+        return isNaN(val) ? fallback : val;
+    };
+
+    setV(s, 'isScenarioModeActive', document.getElementById('sc-active').checked);
+    setV(s, 'housingScenario', document.getElementById('sc-housing').value);
+    setV(s, 'rentExpenseAmount', num('sc-rent', 850));
+    setV(s, 'rentPartner1SharePercent', Math.min(100, Math.max(0, num('sc-split', 50))));
+    setV(s, 'partner1Income', num('sc-p1-income', 2800));
+    setV(s, 'partner2Income', num('sc-p2-income', 2000));
+    setV(s, 'isBabyScenarioActive', document.getElementById('sc-baby').checked);
+    setV(s, 'useCustomElterngeld', document.getElementById('sc-custom-eg').checked);
+    if (document.getElementById('sc-custom-eg').checked) {
+        setV(s, 'customElterngeldAmount', num('sc-eg-amount', 1300));
+    }
+    setV(s, 'kindergeldAmount', num('sc-kindergeld', 250));
+    setV(s, 'childExpenses', num('sc-child-exp', 250));
+
+    // Ansicht sofort aktualisieren, Speichern gebündelt
+    updateDataViews();
+
+    const statusEl = document.getElementById('sc-save-status');
+    if (statusEl) statusEl.textContent = 'Speichere...';
+
+    clearTimeout(scenarioSaveTimer);
+    scenarioSaveTimer = setTimeout(() => {
+        if (state.mode === 'google') {
+            saveScenarioSettingsToGoogle();
+        } else {
+            localStorage.setItem('local_scenario_settings', JSON.stringify(state.scenarioSettings));
+            if (statusEl) statusEl.textContent = `Gespeichert ${new Date().toLocaleTimeString('de-DE')}`;
+        }
+    }, 800);
 }

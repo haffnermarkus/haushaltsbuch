@@ -414,6 +414,16 @@ body, html {
     justify-content: space-between;
     gap: 16px;
     margin-bottom: 14px;
+    flex-wrap: wrap;
+}
+
+/* Echte 2-Spalten-Variante (z. B. Kredit-Karte): vorher wurde nur per Inline-Style
+   grid-template-columns gesetzt, das Element blieb aber display:flex — dadurch
+   quetschten sich alle Boxen in eine Zeile und Beschriftungen liefen über. */
+.summary-details.grid-2 {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px 10px;
 }
 
 .stat-box {
@@ -421,6 +431,7 @@ body, html {
     display: flex;
     flex-direction: column;
     gap: 4px;
+    min-width: 0; /* erlaubt Umbruch statt Überlauf aus der Karte */
 }
 
 .stat-box .label {
@@ -428,11 +439,13 @@ body, html {
     text-transform: uppercase;
     color: var(--text-tertiary);
     letter-spacing: 0.5px;
+    overflow-wrap: anywhere;
 }
 
 .stat-box .value {
     font-size: 18px;
     font-weight: 700;
+    overflow-wrap: anywhere;
 }
 
 .value.income {
@@ -1242,4 +1255,230 @@ body, html {
     border: 0;
     border-top: 1px solid var(--border-color);
     margin: 8px 10px;
+}
+
+/* ==================== MONATSÜBERSICHT ==================== */
+.months-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+    margin-top: 16px;
+}
+
+.month-card {
+    background: var(--bg-card, rgba(255, 255, 255, 0.03));
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 12px;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+}
+
+.month-card.selected {
+    border-color: var(--accent);
+    background: rgba(99, 102, 241, 0.08);
+}
+
+.month-card .month-name {
+    font-size: 13px;
+    font-weight: 700;
+    margin-bottom: 6px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.month-card .month-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    padding: 1px 0;
+}
+
+.month-card .month-row .lbl {
+    color: var(--text-tertiary);
+}
+
+.month-card .month-surplus {
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px solid var(--border-color);
+    font-size: 12px;
+    font-weight: 700;
+    display: flex;
+    justify-content: space-between;
+}
+
+/* ==================== SZENARIEN ==================== */
+.scenario-card {
+    margin-bottom: 16px;
+}
+
+.scenario-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 0;
+    gap: 12px;
+}
+
+.scenario-row + .scenario-row {
+    border-top: 1px solid var(--border-color);
+}
+
+.scenario-row .scenario-label {
+    font-size: 13px;
+    font-weight: 500;
+    flex: 1;
+}
+
+.scenario-row .scenario-hint {
+    display: block;
+    font-size: 11px;
+    color: var(--text-tertiary);
+    font-weight: 400;
+    margin-top: 2px;
+}
+
+.scenario-row input.form-control,
+.scenario-row select.form-control {
+    max-width: 130px;
+    text-align: right;
+    padding: 8px 10px;
+}
+
+/* iOS-taugliche Umschalter */
+.toggle {
+    position: relative;
+    width: 48px;
+    height: 28px;
+    flex-shrink: 0;
+}
+
+.toggle input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.toggle .slider {
+    position: absolute;
+    inset: 0;
+    background: rgba(255, 255, 255, 0.12);
+    border-radius: 14px;
+    transition: background 0.2s;
+}
+
+.toggle .slider::before {
+    content: '';
+    position: absolute;
+    width: 22px;
+    height: 22px;
+    left: 3px;
+    top: 3px;
+    background: #fff;
+    border-radius: 50%;
+    transition: transform 0.2s;
+}
+
+.toggle input:checked + .slider {
+    background: var(--accent);
+}
+
+.toggle input:checked + .slider::before {
+    transform: translateX(20px);
+}
+
+.verdict-box {
+    border-radius: 12px;
+    padding: 14px;
+    margin-top: 12px;
+    font-size: 13px;
+    line-height: 1.5;
+    border: 1px solid;
+}
+
+.verdict-box.ok {
+    background: rgba(46, 204, 113, 0.08);
+    border-color: rgba(46, 204, 113, 0.4);
+}
+
+.verdict-box.warn {
+    background: rgba(241, 196, 15, 0.08);
+    border-color: rgba(241, 196, 15, 0.4);
+}
+
+.verdict-box.bad {
+    background: rgba(231, 76, 60, 0.08);
+    border-color: rgba(231, 76, 60, 0.4);
+}
+
+.verdict-box h5 {
+    margin: 0 0 6px 0;
+    font-size: 14px;
+}
+
+/* ==================== BAUKOSTEN BEARBEITUNG ==================== */
+.baukosten-item-row.editable {
+    cursor: pointer;
+}
+
+.baukosten-item-row.editable:active {
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.baukosten-item-paid-badge {
+    cursor: pointer;
+}
+
+/* ==================== JAHRESVERGLEICH (Balkendiagramm) ==================== */
+.months-chart {
+    display: flex;
+    align-items: flex-end;
+    gap: 4px;
+    height: 120px;
+    padding-top: 8px;
+}
+
+.month-bar-group {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    height: 100%;
+    justify-content: flex-end;
+    cursor: pointer;
+    border-radius: 6px;
+    padding: 2px 1px;
+}
+
+.month-bar-group.selected {
+    background: rgba(99, 102, 241, 0.12);
+}
+
+.month-bar-pair {
+    display: flex;
+    align-items: flex-end;
+    gap: 2px;
+    flex: 1;
+    width: 100%;
+    justify-content: center;
+}
+
+.month-bar {
+    width: 45%;
+    max-width: 9px;
+    border-radius: 2px 2px 0 0;
+    min-height: 0;
+}
+
+.month-bar.income { background: var(--color-income); }
+.month-bar.expense { background: var(--color-expense); }
+
+.month-bar-label {
+    font-size: 8px;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
 }

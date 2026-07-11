@@ -60,6 +60,48 @@ export async function uploadFileContent(fileId, contentObj) {
     return response && response.ok;
 }
 
+// Binärdatei (z. B. Beleg-Foto) nach Google Drive hochladen.
+// Zwei Schritte: Metadaten anlegen, dann Inhalt als Blob hochladen.
+export async function uploadBinaryFile(fileName, blob, mimeType) {
+    try {
+        const metaResp = await apiCall('https://www.googleapis.com/drive/v3/files', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: fileName, mimeType })
+        });
+        if (!metaResp || !metaResp.ok) return null;
+        const file = await metaResp.json();
+
+        const upResp = await apiCall(`https://www.googleapis.com/upload/drive/v3/files/${file.id}?uploadType=media`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': mimeType },
+            body: blob
+        });
+        if (upResp && upResp.ok) return file.id;
+
+        // Inhalt fehlgeschlagen → leere Metadaten-Datei wieder entfernen
+        await deleteDriveFile(file.id);
+        return null;
+    } catch (err) {
+        console.error(`[Drive API] Fehler beim Binär-Upload von ${fileName}:`, err);
+        return null;
+    }
+}
+
+// Binärdatei als Blob herunterladen (für die Beleg-Vorschau)
+export async function downloadBinaryFile(fileId) {
+    if (!fileId) return null;
+    const resp = await apiCall(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`);
+    if (resp && resp.ok) return await resp.blob();
+    return null;
+}
+
+export async function deleteDriveFile(fileId) {
+    if (!fileId) return false;
+    const resp = await apiCall(`https://www.googleapis.com/drive/v3/files/${fileId}`, { method: 'DELETE' });
+    return resp && (resp.ok || resp.status === 204);
+}
+
 // Create new file with content on Google Drive
 export async function createFileInGoogle(fileName, contentObj) {
     try {

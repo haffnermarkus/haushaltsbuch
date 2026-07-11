@@ -269,6 +269,8 @@
                             <span class="label font-bold">Netto-Überschuss:</span>
                             <span id="filter-sum-surplus" class="value surplus-value">0,00 €</span>
                         </div>
+                        <!-- Ausgleichsrechnung für gemeinschaftliche Baukosten (wie am PC) -->
+                        <div id="filter-baukosten-balance" style="margin-top: 10px; border-top: 1px solid var(--border-color); padding-top: 8px; font-size: 12px; color: var(--text-secondary); display: none;"></div>
                     </div>
 
                     <!-- Filtered Transactions list -->
@@ -414,6 +416,7 @@
                     <div class="summary-card baukosten-summary-card">
                         <div class="summary-row header">
                             <h3>Baukosten Übersicht</h3>
+                            <button id="btn-add-baukosten" class="btn btn-primary btn-sm" style="width: auto; padding: 6px 12px;">+ Hinzufügen</button>
                         </div>
                         <div class="summary-details">
                             <div class="stat-box">
@@ -440,6 +443,188 @@
                     <div id="baukosten-list" class="baukosten-list">
                         <!-- Filled by JS -->
                         <div class="loading-state">Lade Baukosten...</div>
+                    </div>
+                </div>
+
+                <!-- Monatsübersicht Tab -->
+                <div id="tab-months" class="tab-page">
+                    <div class="filter-panel">
+                        <div class="form-row">
+                            <div class="form-group half" style="margin-bottom: 0;">
+                                <label for="months-year">Jahr</label>
+                                <select id="months-year" class="form-control">
+                                    <option value="2024">2024</option>
+                                    <option value="2025">2025</option>
+                                    <option value="2026" selected>2026</option>
+                                    <option value="2027">2027</option>
+                                    <option value="2028">2028</option>
+                                </select>
+                            </div>
+                            <div class="form-group half" style="margin-bottom: 0;">
+                                <label for="months-partner">Person</label>
+                                <select id="months-partner" class="form-control">
+                                    <option value="Alle">Alle</option>
+                                    <option value="Partner 1">Markus</option>
+                                    <option value="Partner 2">Maren</option>
+                                    <option value="Beide">Gemeinsam</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Jahresvergleich Balkendiagramm -->
+                    <div class="summary-card" style="margin-top: 16px;">
+                        <div class="summary-row header">
+                            <h3>Jahresvergleich</h3>
+                            <span style="font-size:10px; color:var(--text-tertiary);">
+                                <span style="color:var(--color-income);">■</span> Einnahmen&nbsp;
+                                <span style="color:var(--color-expense);">■</span> Ausgaben
+                            </span>
+                        </div>
+                        <div id="months-chart" class="months-chart">
+                            <!-- Rendered by JS -->
+                        </div>
+                    </div>
+
+                    <div id="months-grid" class="months-grid">
+                        <!-- Rendered by JS -->
+                    </div>
+
+                    <div class="transactions-title-row" style="margin-top: 24px;">
+                        <h4 id="month-detail-title">Buchungen</h4>
+                        <span id="month-detail-count" class="badge">0</span>
+                    </div>
+                    <div id="month-detail-list" class="transactions-list">
+                        <!-- Rendered by JS -->
+                    </div>
+                </div>
+
+                <!-- Hauskosten Tab -->
+                <div id="tab-hauskosten" class="tab-page">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                        <h3 style="margin: 0; font-size: 18px; font-weight: 600;">Hauskosten</h3>
+                        <button id="btn-add-hauskosten" class="btn btn-primary btn-sm" style="width: auto; padding: 8px 14px;">+ Hinzufügen</button>
+                    </div>
+
+                    <div class="summary-card">
+                        <div class="summary-details">
+                            <div class="stat-box">
+                                <span class="label">Finanzierung</span>
+                                <span id="hk-financing" class="value" style="font-size:15px;">0,00 €</span>
+                            </div>
+                            <div class="stat-box">
+                                <span class="label">Betriebskosten</span>
+                                <span id="hk-operating" class="value" style="font-size:15px;">0,00 €</span>
+                            </div>
+                        </div>
+                        <div class="summary-surplus" style="border-top: 1px solid var(--border-color); padding-top: 10px;">
+                            <span class="label font-bold">Gesamt pro Monat:</span>
+                            <span id="hk-total" class="value expense" style="font-weight:700;">0,00 €</span>
+                        </div>
+                    </div>
+
+                    <div class="transactions-title-row" style="margin-top: 24px;">
+                        <h4>Kostenpositionen</h4>
+                        <span id="hk-count" class="badge">0</span>
+                    </div>
+                    <div id="hauskosten-list" class="transactions-list">
+                        <!-- Rendered by JS -->
+                    </div>
+                </div>
+
+                <!-- Szenarien Tab -->
+                <div id="tab-szenarien" class="tab-page">
+                    <div class="summary-card scenario-card">
+                        <div class="scenario-row">
+                            <span class="scenario-label">Szenario-Modus aktiv
+                                <span class="scenario-hint">Ersetzt die Dashboard-Werte durch die Simulation</span>
+                            </span>
+                            <label class="toggle"><input type="checkbox" id="sc-active"><span class="slider"></span></label>
+                        </div>
+                    </div>
+
+                    <div class="summary-card scenario-card">
+                        <div class="summary-row header"><h3>Wohnen</h3></div>
+                        <div class="scenario-row">
+                            <span class="scenario-label">Wohnszenario</span>
+                            <select id="sc-housing" class="form-control">
+                                <option value="Rent">Miete</option>
+                                <option value="House">Eigenheim</option>
+                            </select>
+                        </div>
+                        <div class="scenario-row">
+                            <span class="scenario-label">Monatliche Miete (€)</span>
+                            <input type="number" step="0.01" id="sc-rent" class="form-control" inputmode="decimal">
+                        </div>
+                        <div class="scenario-row">
+                            <span class="scenario-label">Anteil <span id="sc-p1-label">Partner 1</span> (%)
+                                <span class="scenario-hint" id="sc-split-hint"></span>
+                            </span>
+                            <input type="number" step="1" min="0" max="100" id="sc-split" class="form-control" inputmode="numeric">
+                        </div>
+                    </div>
+
+                    <div class="summary-card scenario-card">
+                        <div class="summary-row header"><h3>Einkommen</h3></div>
+                        <div class="scenario-row">
+                            <span class="scenario-label" id="sc-p1-income-label">Netto Partner 1 (€)</span>
+                            <input type="number" step="0.01" id="sc-p1-income" class="form-control" inputmode="decimal">
+                        </div>
+                        <div class="scenario-row">
+                            <span class="scenario-label" id="sc-p2-income-label">Netto Partner 2 (€)</span>
+                            <input type="number" step="0.01" id="sc-p2-income" class="form-control" inputmode="decimal">
+                        </div>
+                    </div>
+
+                    <div class="summary-card scenario-card">
+                        <div class="summary-row header"><h3>Baby-Szenario</h3></div>
+                        <div class="scenario-row">
+                            <span class="scenario-label">Elternzeit &amp; Kind aktiv
+                                <span class="scenario-hint">Ersetzt das Einkommen von Partner 2 durch Elterngeld + Kindergeld</span>
+                            </span>
+                            <label class="toggle"><input type="checkbox" id="sc-baby"><span class="slider"></span></label>
+                        </div>
+                        <div class="scenario-row">
+                            <span class="scenario-label">Eigenes Elterngeld verwenden
+                                <span class="scenario-hint" id="sc-elterngeld-hint"></span>
+                            </span>
+                            <label class="toggle"><input type="checkbox" id="sc-custom-eg"><span class="slider"></span></label>
+                        </div>
+                        <div class="scenario-row">
+                            <span class="scenario-label">Elterngeld (€)</span>
+                            <input type="number" step="0.01" id="sc-eg-amount" class="form-control" inputmode="decimal">
+                        </div>
+                        <div class="scenario-row">
+                            <span class="scenario-label">Kindergeld (€)</span>
+                            <input type="number" step="0.01" id="sc-kindergeld" class="form-control" inputmode="decimal">
+                        </div>
+                        <div class="scenario-row">
+                            <span class="scenario-label">Kind-Ausgaben (€/Monat)</span>
+                            <input type="number" step="0.01" id="sc-child-exp" class="form-control" inputmode="decimal">
+                        </div>
+                    </div>
+
+                    <div class="summary-card scenario-card">
+                        <div class="summary-row header"><h3>Simulationsergebnis</h3></div>
+                        <div class="summary-details">
+                            <div class="stat-box">
+                                <span class="label">Einnahmen</span>
+                                <span id="sc-sim-income" class="value income" style="font-size:15px;">0,00 €</span>
+                            </div>
+                            <div class="stat-box">
+                                <span class="label">Ausgaben</span>
+                                <span id="sc-sim-expenses" class="value expense" style="font-size:15px;">0,00 €</span>
+                            </div>
+                        </div>
+                        <div class="summary-surplus" style="border-top: 1px solid var(--border-color); padding-top: 10px;">
+                            <span class="label font-bold">Monatlicher Überschuss:</span>
+                            <span id="sc-sim-surplus" class="value" style="font-weight:700;">0,00 €</span>
+                        </div>
+                        <div id="sc-verdict" class="verdict-box ok" style="display:none;">
+                            <h5 id="sc-verdict-title"></h5>
+                            <span id="sc-verdict-text"></span>
+                        </div>
+                        <div id="sc-save-status" style="font-size:11px; color:var(--text-tertiary); margin-top:10px; text-align:right;"></div>
                     </div>
                 </div>
             </main>
@@ -489,6 +674,16 @@
                     </svg>
                     <span>Buchungen</span>
                 </button>
+                <button id="sidebar-nav-months" class="sidebar-item">
+                    <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                        <line x1="16" y1="2" x2="16" y2="6"></line>
+                        <line x1="8" y1="2" x2="8" y2="6"></line>
+                        <line x1="3" y1="10" x2="21" y2="10"></line>
+                        <path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"></path>
+                    </svg>
+                    <span>Monatsübersicht</span>
+                </button>
                 <button id="sidebar-nav-fixed-expenses" class="sidebar-item">
                     <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
                         <rect x="3" y="4" width="18" height="16" rx="2"></rect>
@@ -510,6 +705,20 @@
                         <polyline points="9 22 9 12 15 12 15 22"></polyline>
                     </svg>
                     <span>Baukosten</span>
+                </button>
+                <button id="sidebar-nav-hauskosten" class="sidebar-item">
+                    <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+                        <line x1="9" y1="15" x2="15" y2="15"></line>
+                        <line x1="9" y1="18" x2="15" y2="18"></line>
+                    </svg>
+                    <span>Hauskosten</span>
+                </button>
+                <button id="sidebar-nav-szenarien" class="sidebar-item">
+                    <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+                    </svg>
+                    <span>Szenarien-Planer</span>
                 </button>
                 <hr class="sidebar-divider">
                 <button id="sidebar-nav-settings" class="sidebar-item">
@@ -603,6 +812,20 @@
         </div>
     </div>
 
+    <!-- Beleg-Vorschau Overlay -->
+    <div id="invoice-preview-dialog" class="dialog-overlay popup">
+        <div class="popup-box" style="max-width: 420px;">
+            <h3 id="invoice-preview-title">Beleg</h3>
+            <div style="max-height: 55vh; overflow: auto; text-align: center; margin-bottom: 12px;">
+                <img id="invoice-preview-img" alt="Beleg" style="max-width: 100%; border-radius: 8px;">
+            </div>
+            <div class="popup-actions">
+                <button id="btn-invoice-remove" class="btn btn-danger">Beleg löschen</button>
+                <button id="btn-invoice-close" class="btn btn-secondary">Schließen</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Confirmation Dialog Overlay -->
     <div id="confirm-dialog" class="dialog-overlay popup">
         <div class="popup-box">
@@ -612,6 +835,119 @@
                 <button id="btn-confirm-cancel" class="btn btn-secondary">Abbrechen</button>
                 <button id="btn-confirm-ok" class="btn btn-danger">Löschen</button>
             </div>
+        </div>
+    </div>
+
+    <!-- Hauskosten Bottom Sheet Dialog -->
+    <div id="hauskosten-dialog" class="dialog-overlay">
+        <div class="bottom-sheet">
+            <div class="sheet-header">
+                <h3 id="hk-dialog-title">Neue Hauskosten-Position</h3>
+                <button id="hk-dialog-btn-close" class="close-button">
+                    <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
+            </div>
+            <form id="hauskosten-form" class="sheet-content">
+                <div class="form-group">
+                    <label for="hk-field-name">Bezeichnung</label>
+                    <input type="text" id="hk-field-name" class="form-control" placeholder="z.B. Grundsteuer" required>
+                </div>
+                <div class="form-row">
+                    <div class="form-group half">
+                        <label for="hk-field-amount">Betrag (€/Monat)</label>
+                        <input type="number" step="0.01" id="hk-field-amount" class="form-control" inputmode="decimal" placeholder="0,00" required>
+                    </div>
+                    <div class="form-group half">
+                        <label for="hk-field-category">Kategorie</label>
+                        <select id="hk-field-category" class="form-control">
+                            <option value="Betriebskosten">Betriebskosten</option>
+                            <option value="Finanzierung">Finanzierung</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="hk-field-notes">Notizen (optional)</label>
+                    <textarea id="hk-field-notes" class="form-control compact-textarea" rows="1" placeholder="Notizen..."></textarea>
+                </div>
+                <div class="form-actions">
+                    <button type="button" id="btn-hk-delete" class="btn btn-danger" style="display:none;">Löschen</button>
+                    <button type="button" id="btn-hk-cancel" class="btn btn-secondary">Abbrechen</button>
+                    <button type="submit" class="btn btn-primary">Speichern</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Baukosten Bottom Sheet Dialog -->
+    <div id="baukosten-dialog" class="dialog-overlay">
+        <div class="bottom-sheet">
+            <div class="sheet-header">
+                <h3 id="bk-dialog-title">Neuer Baukosten-Eintrag</h3>
+                <button id="bk-dialog-btn-close" class="close-button">
+                    <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
+            </div>
+            <form id="baukosten-form" class="sheet-content">
+                <div class="form-group">
+                    <label for="bk-field-name">Bezeichnung</label>
+                    <input type="text" id="bk-field-name" class="form-control" placeholder="z.B. Erdaushub" required>
+                </div>
+                <div class="form-row">
+                    <div class="form-group half">
+                        <label for="bk-field-amount">Betrag (€)</label>
+                        <input type="number" step="0.01" id="bk-field-amount" class="form-control" inputmode="decimal" placeholder="0,00" required>
+                    </div>
+                    <div class="form-group half">
+                        <label for="bk-field-category">Kategorie</label>
+                        <select id="bk-field-category" class="form-control">
+                            <!-- Filled by JS -->
+                        </select>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group half">
+                        <label for="bk-field-status">Status</label>
+                        <select id="bk-field-status" class="form-control">
+                            <option value="open">Noch offen</option>
+                            <option value="paid">Bezahlt</option>
+                        </select>
+                    </div>
+                    <div class="form-group half">
+                        <label for="bk-field-paidby">Bezahlt von</label>
+                        <select id="bk-field-paidby" class="form-control">
+                            <option value="Gemeinsam">Gemeinsam</option>
+                            <option value="Partner 1">Markus</option>
+                            <option value="Partner 2">Maren</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group half">
+                        <label for="bk-field-paydate">Bezahlt am</label>
+                        <input type="date" id="bk-field-paydate" class="form-control">
+                    </div>
+                </div>
+                <div class="form-group" id="bk-invoice-group">
+                    <label>Beleg / Rechnung</label>
+                    <div style="display:flex; gap:8px;">
+                        <button type="button" id="btn-bk-photo" class="btn btn-secondary" style="flex:1;">📷 Foto aufnehmen</button>
+                        <button type="button" id="btn-bk-view-invoice" class="btn btn-secondary" style="flex:1; display:none;">Beleg ansehen</button>
+                    </div>
+                    <input type="file" id="bk-invoice-file" accept="image/*" capture="environment" style="display:none;">
+                    <span id="bk-invoice-status" style="font-size:11px; color:var(--text-tertiary);"></span>
+                </div>
+                <div class="form-actions">
+                    <button type="button" id="btn-bk-delete" class="btn btn-danger" style="display:none;">Löschen</button>
+                    <button type="button" id="btn-bk-cancel" class="btn btn-secondary">Abbrechen</button>
+                    <button type="submit" class="btn btn-primary">Speichern</button>
+                </div>
+            </form>
         </div>
     </div>
 

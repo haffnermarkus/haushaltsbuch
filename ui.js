@@ -1,11 +1,17 @@
-import { 
-    state, 
-    MONTH_NAMES, 
-    escapeHtml, 
-    formatCurrency, 
-    getCategoryEmoji, 
-    runAnnuitySimulation, 
-    updateSingleLoanCalculations 
+import {
+    state,
+    MONTH_NAMES,
+    escapeHtml,
+    formatCurrency,
+    getCategoryEmoji,
+    runAnnuitySimulation,
+    updateSingleLoanCalculations,
+    saveLoansToLocal,
+    v,
+    computeMonthlyTotals,
+    getScenarioValues,
+    getTotalHouseExpenses,
+    getHousingTotal
 } from './state.js';
 
 export function getAssignedDisplayName(assigned) {
@@ -18,36 +24,23 @@ export function updatePartnerDropdowns() {
     const p1Name = state.partner1Name || 'Markus';
     const p2Name = state.partner2Name || 'Maren';
 
-    const filterSelect = document.getElementById('filter-assigned');
-    if (filterSelect) {
-        const p1Opt = filterSelect.querySelector('option[value="Partner 1"]');
+    ['filter-assigned', 'field-assigned', 'fixed-field-assigned', 'months-partner', 'bk-field-paidby'].forEach(id => {
+        const select = document.getElementById(id);
+        if (!select) return;
+        const p1Opt = select.querySelector('option[value="Partner 1"]');
         if (p1Opt) p1Opt.textContent = p1Name;
-        const p2Opt = filterSelect.querySelector('option[value="Partner 2"]');
+        const p2Opt = select.querySelector('option[value="Partner 2"]');
         if (p2Opt) p2Opt.textContent = p2Name;
-    }
-
-    const fieldSelect = document.getElementById('field-assigned');
-    if (fieldSelect) {
-        const p1Opt = fieldSelect.querySelector('option[value="Partner 1"]');
-        if (p1Opt) p1Opt.textContent = p1Name;
-        const p2Opt = fieldSelect.querySelector('option[value="Partner 2"]');
-        if (p2Opt) p2Opt.textContent = p2Name;
-    }
-
-    const fixedSelect = document.getElementById('fixed-field-assigned');
-    if (fixedSelect) {
-        const p1Opt = fixedSelect.querySelector('option[value="Partner 1"]');
-        if (p1Opt) p1Opt.textContent = p1Name;
-        const p2Opt = fixedSelect.querySelector('option[value="Partner 2"]');
-        if (p2Opt) p2Opt.textContent = p2Name;
-    }
+    });
 }
 
-import { 
-    openTransactionDialog, 
+import {
+    openTransactionDialog,
     confirmDeleteTransaction,
     openFixedExpenseDialog,
-    confirmDeleteFixedExpense
+    confirmDeleteFixedExpense,
+    openHouseExpenseDialog,
+    openBuildingCostDialog
 } from './app.js';
 
 export function updateDataViews() {
@@ -61,6 +54,12 @@ export function updateDataViews() {
         renderLoans();
     } else if (state.activeTab === 'baukosten') {
         renderBuildingCosts();
+    } else if (state.activeTab === 'months') {
+        renderMonthsOverview();
+    } else if (state.activeTab === 'hauskosten') {
+        renderHouseExpenses();
+    } else if (state.activeTab === 'szenarien') {
+        renderScenario();
     }
 }
 
@@ -388,6 +387,29 @@ export function renderFilterableTransactions() {
     surplusEl.textContent = `${surplus >= 0 ? '+' : ''}${surplus.toFixed(2).replace('.', ',')} €`;
     surplusEl.style.color = surplus >= 0 ? 'var(--color-income)' : 'var(--color-expense)';
 
+    // Ausgleichsrechnung für gemeinschaftliche Baukosten (identisch zur PC-Logik):
+    // Nur Baukosten zählen, die von einem der Partner allein bezahlt wurden.
+    const balanceEl = document.getElementById('filter-baukosten-balance');
+    if (balanceEl) {
+        const p1Bk = filtered.filter(i => i.type === 'Baukosten' && i.assignedTo === 'Partner 1').reduce((s, i) => s + i.amount, 0);
+        const p2Bk = filtered.filter(i => i.type === 'Baukosten' && i.assignedTo === 'Partner 2').reduce((s, i) => s + i.amount, 0);
+        if (p1Bk > 0 || p2Bk > 0) {
+            balanceEl.style.display = 'block';
+            const diff = (p1Bk - p2Bk) / 2;
+            const p1Name = state.partner1Name || 'Partner 1';
+            const p2Name = state.partner2Name || 'Partner 2';
+            if (diff > 0.005) {
+                balanceEl.innerHTML = `⚖️ <strong>${escapeHtml(p2Name)}</strong> schuldet <strong>${escapeHtml(p1Name)}</strong> ${formatCurrency(diff)} (für gemeinschaftliche Baukosten).`;
+            } else if (diff < -0.005) {
+                balanceEl.innerHTML = `⚖️ <strong>${escapeHtml(p1Name)}</strong> schuldet <strong>${escapeHtml(p2Name)}</strong> ${formatCurrency(Math.abs(diff))} (für gemeinschaftliche Baukosten).`;
+            } else {
+                balanceEl.innerHTML = `⚖️ Ausgeglichene Baukosten-Abrechnung.`;
+            }
+        } else {
+            balanceEl.style.display = 'none';
+        }
+    }
+
     if (filtered.length === 0) {
         container.innerHTML = `<div class="no-transactions">Keine Buchungen mit diesen Filterkriterien gefunden.</div>`;
         return;
@@ -700,7 +722,7 @@ export function renderLoans() {
                     <h3>${escapeHtml(selectedLoan.name || selectedLoan.Name)}</h3>
                     <span class="badge" style="background:rgba(99,102,241,0.15); color:var(--accent); font-weight:700;">${typeLabel}</span>
                 </div>
-                <div class="summary-details" style="grid-template-columns: repeat(2, 1fr); gap:12px 8px;">
+                <div class="summary-details grid-2">
                     <div class="stat-box">
                         <span class="label">Kreditsumme</span>
                         <span class="value" style="font-size:16px;">${formatCurrency(originalAmount)}</span>
@@ -983,14 +1005,14 @@ export function renderBuildingCosts() {
             }
             
             itemsHtml += `
-                <div class="baukosten-item-row">
+                <div class="baukosten-item-row editable" data-bkid="${item.id || item.Id || ''}">
                     <div class="baukosten-item-left">
                         <div class="baukosten-item-status-icon ${statusClass}">
                             ${statusIcon}
                         </div>
                         <div class="baukosten-item-details">
-                            <span class="baukosten-item-name">${name}</span>
-                            <span class="baukosten-item-meta">${paidText}</span>
+                            <span class="baukosten-item-name">${escapeHtml(name)}</span>
+                            <span class="baukosten-item-meta">${escapeHtml(paidText)}</span>
                         </div>
                     </div>
                     <div class="baukosten-item-right">
@@ -1015,8 +1037,293 @@ export function renderBuildingCosts() {
                 ${itemsHtml}
             </div>
         `;
-        
+
+        // Antippen einer Position öffnet den Bearbeiten-Dialog
+        card.querySelectorAll('.baukosten-item-row[data-bkid]').forEach(row => {
+            const bkId = row.getAttribute('data-bkid');
+            if (bkId) {
+                row.addEventListener('click', () => openBuildingCostDialog(bkId));
+            }
+        });
+
         container.appendChild(card);
+    }
+}
+
+// ==================== MONATSÜBERSICHT ====================
+export function renderMonthsOverview() {
+    const grid = document.getElementById('months-grid');
+    if (!grid) return;
+
+    const yearSel = document.getElementById('months-year');
+    const partnerSel = document.getElementById('months-partner');
+    const year = yearSel ? parseInt(yearSel.value) : new Date().getFullYear();
+    const partnerFilter = partnerSel ? partnerSel.value : 'Alle';
+
+    grid.innerHTML = '';
+
+    // Alle 12 Monate berechnen (für Karten UND Diagramm)
+    const allTotals = [];
+    for (let m = 1; m <= 12; m++) {
+        allTotals.push(computeMonthlyTotals(year, m, partnerFilter));
+    }
+
+    // Jahresvergleich-Balkendiagramm
+    const chart = document.getElementById('months-chart');
+    if (chart) {
+        chart.innerHTML = '';
+        const maxVal = Math.max(1, ...allTotals.map(t => Math.max(t.income, t.expenses)));
+        for (let m = 1; m <= 12; m++) {
+            const t = allTotals[m - 1];
+            const incH = t.income > 0 ? Math.max(2, (t.income / maxVal) * 100) : 0;
+            const expH = t.expenses > 0 ? Math.max(2, (t.expenses / maxVal) * 100) : 0;
+            const group = document.createElement('div');
+            group.className = 'month-bar-group' + (state.selectedOverviewMonth === m ? ' selected' : '');
+            group.innerHTML = `
+                <div class="month-bar-pair">
+                    <div class="month-bar income" style="height:${incH}%;"></div>
+                    <div class="month-bar expense" style="height:${expH}%;"></div>
+                </div>
+                <span class="month-bar-label">${MONTH_NAMES[m - 1].substring(0, 3)}</span>
+            `;
+            group.addEventListener('click', () => {
+                state.selectedOverviewMonth = m;
+                renderMonthsOverview();
+            });
+            chart.appendChild(group);
+        }
+    }
+
+    let selectedResult = null;
+    for (let m = 1; m <= 12; m++) {
+        const totals = allTotals[m - 1];
+        const surplus = totals.income - totals.expenses;
+        const isSelected = state.selectedOverviewMonth === m;
+        if (isSelected) selectedResult = totals;
+
+        const card = document.createElement('div');
+        card.className = 'month-card' + (isSelected ? ' selected' : '');
+        card.innerHTML = `
+            <div class="month-name">${MONTH_NAMES[m - 1]}</div>
+            <div class="month-row"><span class="lbl">Einnahmen</span><span class="value income" style="font-size:11px;">+${formatCurrency(totals.income)}</span></div>
+            <div class="month-row"><span class="lbl">Ausgaben</span><span class="value expense" style="font-size:11px;">-${formatCurrency(totals.expenses)}</span></div>
+            <div class="month-surplus"><span>Saldo</span><span style="color:${surplus >= 0 ? 'var(--color-income)' : 'var(--color-expense)'};">${surplus >= 0 ? '+' : ''}${formatCurrency(surplus)}</span></div>
+        `;
+        card.addEventListener('click', () => {
+            state.selectedOverviewMonth = m;
+            renderMonthsOverview();
+        });
+        grid.appendChild(card);
+    }
+
+    // Detail-Liste für den gewählten Monat
+    const list = document.getElementById('month-detail-list');
+    const titleEl = document.getElementById('month-detail-title');
+    const countEl = document.getElementById('month-detail-count');
+    if (!list) return;
+    list.innerHTML = '';
+
+    const mIdx = state.selectedOverviewMonth;
+    if (titleEl) titleEl.textContent = `Buchungen ${MONTH_NAMES[mIdx - 1]} ${year}`;
+
+    const totals = selectedResult || computeMonthlyTotals(year, mIdx, partnerFilter);
+    const rows = [];
+
+    totals.varTransactions.forEach(t => rows.push({ ...t, rowKind: t.kind }));
+
+    if (totals.fixedExpTotal > 0) {
+        rows.push({
+            title: 'Fixkosten (Ausgaben)',
+            amount: totals.fixedExpTotal,
+            isIncome: false,
+            category: 'Wohnen',
+            assignedTo: partnerFilter === 'Beide' ? 'Gemeinsam' : partnerFilter,
+            date: new Date(year, mIdx - 1, 1),
+            notes: 'Zusammengefasste fixe Ausgaben für diesen Monat.',
+            rowKind: 'fixed-agg'
+        });
+    }
+
+    totals.fixedIncomeRows.forEach(r => rows.push({ ...r, isIncome: true, rowKind: 'fixed-income' }));
+
+    if (countEl) countEl.textContent = rows.length;
+
+    if (rows.length === 0) {
+        list.innerHTML = `<div class="no-transactions">Keine Buchungen in diesem Monat.</div>`;
+        return;
+    }
+
+    rows.forEach(t => {
+        const item = document.createElement('div');
+        item.className = 'transaction-item';
+        const icon = t.rowKind === 'fixed-agg' ? '📌' : getCategoryEmoji(t.category);
+        const dateFormatted = t.date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
+        item.innerHTML = `
+            <div class="transaction-left">
+                <div class="category-icon">${icon}</div>
+                <div class="transaction-details">
+                    <h5 style="margin:0;">${escapeHtml(t.title)}</h5>
+                    <div class="subtitle" style="font-size:10px;">${dateFormatted} • ${escapeHtml(getAssignedDisplayName(t.assignedTo))}</div>
+                </div>
+            </div>
+            <div class="transaction-right">
+                <span class="amount ${t.isIncome ? 'income' : 'expense'}" style="font-weight:700;">
+                    ${t.isIncome ? '+' : '-'}${formatCurrency(t.amount)}
+                </span>
+            </div>
+        `;
+        if (t.rowKind === 'var' && t.id) {
+            item.style.cursor = 'pointer';
+            item.addEventListener('click', () => showTransactionDetails(t.id));
+        }
+        list.appendChild(item);
+    });
+}
+
+// ==================== HAUSKOSTEN ====================
+export function renderHouseExpenses() {
+    const list = document.getElementById('hauskosten-list');
+    if (!list) return;
+    list.innerHTML = '';
+
+    const items = state.houseExpenses || [];
+    const total = getTotalHouseExpenses();
+    const financing = items.filter(h => v(h, 'category') === 'Finanzierung').reduce((s, h) => s + parseFloat(v(h, 'amount') || 0), 0);
+    const operating = items.filter(h => v(h, 'category') === 'Betriebskosten').reduce((s, h) => s + parseFloat(v(h, 'amount') || 0), 0);
+
+    const totalEl = document.getElementById('hk-total');
+    if (totalEl) totalEl.textContent = formatCurrency(total);
+    const finEl = document.getElementById('hk-financing');
+    if (finEl) finEl.textContent = formatCurrency(financing);
+    const opEl = document.getElementById('hk-operating');
+    if (opEl) opEl.textContent = formatCurrency(operating);
+    const countEl = document.getElementById('hk-count');
+    if (countEl) countEl.textContent = items.length;
+
+    if (items.length === 0) {
+        list.innerHTML = `<div class="no-transactions">Keine Hauskosten-Positionen vorhanden.</div>`;
+        return;
+    }
+
+    items.forEach(h => {
+        const item = document.createElement('div');
+        item.className = 'transaction-item';
+        item.style.cursor = 'pointer';
+        const cat = v(h, 'category') || 'Betriebskosten';
+        const icon = cat === 'Finanzierung' ? '🏦' : '💡';
+        item.innerHTML = `
+            <div class="transaction-left">
+                <div class="category-icon">${icon}</div>
+                <div class="transaction-details">
+                    <h5 style="margin:0;">${escapeHtml(v(h, 'name') || '')}</h5>
+                    <div class="subtitle" style="font-size:10px;">${escapeHtml(cat)}</div>
+                </div>
+            </div>
+            <div class="transaction-right">
+                <span class="amount expense" style="font-weight:700;">-${formatCurrency(parseFloat(v(h, 'amount') || 0))}</span>
+            </div>
+        `;
+        item.addEventListener('click', () => openHouseExpenseDialog(v(h, 'id')));
+        list.appendChild(item);
+    });
+}
+
+// ==================== SZENARIEN ====================
+export function renderScenario() {
+    const sc = getScenarioValues();
+
+    // Eingabefelder füllen (nur wenn nicht gerade fokussiert, sonst tippt man gegen das Re-Rendern an)
+    const setInput = (id, value) => {
+        const el = document.getElementById(id);
+        if (el && document.activeElement !== el) el.value = value;
+    };
+    const setCheck = (id, value) => {
+        const el = document.getElementById(id);
+        if (el) el.checked = value;
+    };
+
+    setCheck('sc-active', sc.isActive);
+    setInput('sc-housing', sc.housingScenario);
+    setInput('sc-rent', sc.rentAmount);
+    setInput('sc-split', sc.p1SharePercent);
+    setInput('sc-p1-income', sc.p1Income);
+    setInput('sc-p2-income', sc.p2Income);
+    setCheck('sc-baby', sc.isBabyActive);
+    setCheck('sc-custom-eg', sc.useCustomEg);
+    setInput('sc-eg-amount', sc.useCustomEg ? sc.customEg : sc.effectiveEg);
+    setInput('sc-kindergeld', sc.kindergeld);
+    setInput('sc-child-exp', sc.childExpenses);
+
+    const egInput = document.getElementById('sc-eg-amount');
+    if (egInput) egInput.disabled = !sc.useCustomEg;
+    const egHint = document.getElementById('sc-elterngeld-hint');
+    if (egHint) egHint.textContent = `Berechnet (65% vom Netto): ${formatCurrency(sc.calculatedEg)}`;
+
+    const p1Label = document.getElementById('sc-p1-label');
+    if (p1Label) p1Label.textContent = state.partner1Name;
+    const p1IncLabel = document.getElementById('sc-p1-income-label');
+    if (p1IncLabel) p1IncLabel.textContent = `Netto ${state.partner1Name} (€)`;
+    const p2IncLabel = document.getElementById('sc-p2-income-label');
+    if (p2IncLabel) p2IncLabel.textContent = `Netto ${state.partner2Name} (€)`;
+    const splitHint = document.getElementById('sc-split-hint');
+    if (splitHint) splitHint.textContent = `${state.partner2Name}: ${100 - sc.p1SharePercent}%`;
+
+    // Simulation (Port von UpdateSimulatedCalculations)
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth() + 1;
+    const fixedList = state.fixedExpenses || [];
+
+    const inRange = (f) => {
+        const raw = v(f, 'startDate');
+        if (!raw) return true;
+        const sd = new Date(raw);
+        if (isNaN(sd.getTime())) return true;
+        return sd.getFullYear() < year || (sd.getFullYear() === year && (sd.getMonth() + 1) <= month);
+    };
+
+    const otherFixedIncome = fixedList
+        .filter(f => v(f, 'isIncome') && v(f, 'category') !== 'Gehalt' && inRange(f))
+        .reduce((s, f) => s + parseFloat(v(f, 'amount') || 0), 0);
+    const otherFixedExpenses = fixedList
+        .filter(f => !v(f, 'isIncome') && inRange(f) && !((v(f, 'category') === 'Wohnen') && ((v(f, 'title') || '').toLowerCase().includes('miete'))))
+        .reduce((s, f) => s + parseFloat(v(f, 'amount') || 0), 0);
+
+    const p2Term = sc.isBabyActive ? (sc.effectiveEg + sc.kindergeld) : sc.p2Income;
+    const simIncome = sc.p1Income + p2Term + otherFixedIncome;
+    const housingExpenses = sc.housingScenario === 'House' ? getTotalHouseExpenses() : sc.rentAmount;
+    const simExpenses = housingExpenses + otherFixedExpenses + (sc.isBabyActive ? sc.childExpenses : 0);
+    const surplus = simIncome - simExpenses;
+
+    const incEl = document.getElementById('sc-sim-income');
+    if (incEl) incEl.textContent = `+${formatCurrency(simIncome)}`;
+    const expEl = document.getElementById('sc-sim-expenses');
+    if (expEl) expEl.textContent = `-${formatCurrency(simExpenses)}`;
+    const surEl = document.getElementById('sc-sim-surplus');
+    if (surEl) {
+        surEl.textContent = `${surplus >= 0 ? '+' : ''}${formatCurrency(surplus)}`;
+        surEl.style.color = surplus >= 0 ? 'var(--color-income)' : 'var(--color-expense)';
+    }
+
+    // Verdikt wie am PC
+    const box = document.getElementById('sc-verdict');
+    const vTitle = document.getElementById('sc-verdict-title');
+    const vText = document.getElementById('sc-verdict-text');
+    if (box && vTitle && vText) {
+        box.style.display = 'block';
+        if (surplus >= 500) {
+            box.className = 'verdict-box ok';
+            vTitle.textContent = '✓ Finanziell tragbar';
+            vText.textContent = 'Sehr solide! In diesem Szenario verbleibt nach Abzug aller Fixkosten ein komfortabler monatlicher Puffer für variable Ausgaben und Sparguthaben.';
+        } else if (surplus >= 0) {
+            box.className = 'verdict-box warn';
+            vTitle.textContent = '⚠ Erhöhte Aufmerksamkeit nötig';
+            vText.textContent = 'Knapp, aber tragbar. Der monatliche Überschuss ist gering — variable Ausgaben (Lebensmittel, Freizeit, etc.) genau budgetieren.';
+        } else {
+            box.className = 'verdict-box bad';
+            vTitle.textContent = '✗ Finanzielles Defizit!';
+            vText.textContent = `Achtung! Die geplanten Fixkosten übersteigen die Einnahmen um ${formatCurrency(Math.abs(surplus))} pro Monat.`;
+        }
     }
 }
 

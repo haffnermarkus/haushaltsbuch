@@ -1,7 +1,7 @@
 // Service Worker für Haushaltsbuch PWA
 // Cacht App-Shell für Offline-Nutzung
 
-const CACHE_NAME = 'haushaltsbuch-v10'; // v10: Safe-Area (Statusleiste/Home-Indicator) + Tastatur-Baseline-Kalibrierung
+const CACHE_NAME = 'haushaltsbuch-v12'; // v12: Beleg-Fotos, Jahresvergleich, Baukosten-Ausgleich, Offline-Warteschlange
 
 // Dateien die immer gecacht werden (App Shell)
 const APP_SHELL = [
@@ -9,6 +9,10 @@ const APP_SHELL = [
     './index.html',
     './style.css',
     './app.js',
+    './ui.js',
+    './state.js',
+    './api.js',
+    './auth.js',
     './manifest.json',
     './icon-192.png',
     './icon-512.png'
