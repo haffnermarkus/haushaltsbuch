@@ -40,7 +40,8 @@ import {
     openFixedExpenseDialog,
     confirmDeleteFixedExpense,
     openHouseExpenseDialog,
-    openBuildingCostDialog
+    openBuildingCostDialog,
+    openInvoicePreviewFor
 } from './app.js';
 
 export function updateDataViews() {
@@ -891,6 +892,18 @@ export function showTransactionDetails(id) {
         notesEl.textContent = 'Keine Notizen erfasst.';
         notesEl.style.fontStyle = 'italic';
         notesEl.style.color = 'rgba(255,255,255,0.2)';
+    }
+
+    // Beleg-Button nur zeigen, wenn ein Beleg angehängt ist
+    const btnInvoice = document.getElementById('detail-btn-invoice');
+    if (btnInvoice) {
+        const driveFileId = t.invoiceDriveFileId || t.InvoiceDriveFileId;
+        if (driveFileId && state.mode === 'google') {
+            btnInvoice.style.display = 'block';
+            btnInvoice.onclick = () => openInvoicePreviewFor('transactions', id);
+        } else {
+            btnInvoice.style.display = 'none';
+        }
     }
 
     // Set buttons bindings

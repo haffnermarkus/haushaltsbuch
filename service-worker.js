@@ -1,7 +1,7 @@
 // Service Worker für Haushaltsbuch PWA
 // Cacht App-Shell für Offline-Nutzung
 
-const CACHE_NAME = 'haushaltsbuch-v12'; // v12: Beleg-Fotos, Jahresvergleich, Baukosten-Ausgleich, Offline-Warteschlange
+const CACHE_NAME = 'haushaltsbuch-v13'; // v13: Beleg-Vorschau im Vordergrund, PDF-Belege, Belege für Buchungen & Fixkosten
 
 // Dateien die immer gecacht werden (App Shell)
 const APP_SHELL = [

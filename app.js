@@ -63,7 +63,8 @@ export {
     confirmDeleteFixedExpense,
     saveLoansToGoogle,
     openHouseExpenseDialog,
-    openBuildingCostDialog
+    openBuildingCostDialog,
+    openInvoicePreviewFor
 };
 
 // ==================== PWA: SERVICE WORKER REGISTRIERUNG ====================
@@ -275,16 +276,15 @@ function initUI() {
     const bkStatus = document.getElementById('bk-field-status');
     if (bkStatus) bkStatus.addEventListener('change', updateBkPaidFieldsVisibility);
 
-    // Beleg-Fotos (Baukosten)
-    const btnBkPhoto = document.getElementById('btn-bk-photo');
-    if (btnBkPhoto) btnBkPhoto.addEventListener('click', () => {
-        const fileInput = document.getElementById('bk-invoice-file');
-        if (fileInput) fileInput.click();
+    // Belege (Foto/PDF) — für Baukosten (bk), Buchungen (tx) und Fixkosten (fx)
+    [['bk', 'buildingCosts'], ['tx', 'transactions'], ['fx', 'fixedExpenses']].forEach(([prefix]) => {
+        const btnAttach = document.getElementById(`btn-${prefix}-attach`);
+        const fileInput = document.getElementById(`${prefix}-invoice-file`);
+        const btnView = document.getElementById(`btn-${prefix}-view-invoice`);
+        if (btnAttach && fileInput) btnAttach.addEventListener('click', () => fileInput.click());
+        if (fileInput) fileInput.addEventListener('change', handleInvoiceFileSelected);
+        if (btnView) btnView.addEventListener('click', openInvoicePreview);
     });
-    const bkFileInput = document.getElementById('bk-invoice-file');
-    if (bkFileInput) bkFileInput.addEventListener('change', handleInvoicePhotoSelected);
-    const btnBkView = document.getElementById('btn-bk-view-invoice');
-    if (btnBkView) btnBkView.addEventListener('click', openInvoicePreview);
     const btnInvClose = document.getElementById('btn-invoice-close');
     if (btnInvClose) btnInvClose.addEventListener('click', () => hideOverlay('invoice-preview-dialog'));
     const btnInvRemove = document.getElementById('btn-invoice-remove');
@@ -761,6 +761,9 @@ function openTransactionDialog(id = null) {
         document.getElementById('dialog-title').textContent = "Neuer Eintrag";
     }
 
+    // Beleg-Bereich initialisieren (Foto/PDF via Drive)
+    setupInvoiceSection('tx', 'transactions', id);
+
     showOverlay('transaction-dialog');
 }
 
@@ -1043,6 +1046,9 @@ function openFixedExpenseDialog(id = null) {
     } else {
         document.getElementById('fixed-dialog-title').textContent = "Neue Fixkosten";
     }
+
+    // Beleg-Bereich initialisieren (Foto/PDF via Drive)
+    setupInvoiceSection('fx', 'fixedExpenses', id);
 
     showOverlay('fixed-expense-dialog');
 }
@@ -1390,25 +1396,8 @@ function openBuildingCostDialog(id = null) {
     document.getElementById('bk-field-paydate').value = new Date().toISOString().substring(0, 10);
     document.getElementById('btn-bk-delete').style.display = 'none';
 
-    // Beleg-Bereich zurücksetzen
-    const invoiceGroup = document.getElementById('bk-invoice-group');
-    const btnViewInvoice = document.getElementById('btn-bk-view-invoice');
-    const invoiceStatus = document.getElementById('bk-invoice-status');
-    const btnPhoto = document.getElementById('btn-bk-photo');
-    if (invoiceGroup) {
-        // Fotos brauchen Drive (Ablage) und einen gespeicherten Eintrag (Zuordnung)
-        const canPhoto = state.mode === 'google' && !!id;
-        invoiceGroup.style.display = 'block';
-        btnPhoto.disabled = !canPhoto;
-        btnViewInvoice.style.display = 'none';
-        if (!id) {
-            invoiceStatus.textContent = 'Eintrag zuerst speichern, dann Beleg anhängen.';
-        } else if (state.mode !== 'google') {
-            invoiceStatus.textContent = 'Belege sind nur im Google-Drive-Modus verfügbar.';
-        } else {
-            invoiceStatus.textContent = 'Noch kein Beleg angehängt.';
-        }
-    }
+    // Beleg-Bereich initialisieren (Foto/PDF via Drive)
+    setupInvoiceSection('bk', 'buildingCosts', id);
 
     if (id) {
         document.getElementById('bk-dialog-title').textContent = 'Baukosten bearbeiten';
@@ -1432,13 +1421,6 @@ function openBuildingCostDialog(id = null) {
             const isCalculated = category === 'Grundstück' && !name.includes('Kaufpreis');
             nameInput.readOnly = isCalculated;
             document.getElementById('btn-bk-delete').style.display = category === 'Grundstück' ? 'none' : 'block';
-
-            // Vorhandenen Beleg anzeigen
-            const driveFileId = v(item, 'invoiceDriveFileId');
-            if (driveFileId && state.mode === 'google') {
-                document.getElementById('btn-bk-view-invoice').style.display = 'block';
-                document.getElementById('bk-invoice-status').textContent = v(item, 'invoiceFileName') || 'Beleg vorhanden';
-            }
         }
     } else {
         document.getElementById('bk-dialog-title').textContent = 'Neuer Baukosten-Eintrag';
@@ -1522,26 +1504,86 @@ async function compressImage(file, maxDim = 1600, quality = 0.8) {
     }
 }
 
-async function handleInvoicePhotoSelected(e) {
+// Aktuelles Beleg-Ziel: welche Liste, welcher Eintrag, welches Dialog-Präfix
+let invoiceTarget = null; // { prefix: 'bk'|'tx'|'fx', list: 'buildingCosts'|'transactions'|'fixedExpenses', id }
+
+function resolveInvoiceItem() {
+    if (!invoiceTarget) return null;
+    return (state[invoiceTarget.list] || []).find(x => (v(x, 'id')) === invoiceTarget.id) || null;
+}
+
+function persistInvoiceList() {
+    if (!invoiceTarget) return;
+    if (invoiceTarget.list === 'buildingCosts') {
+        persistBuildingCosts();
+    } else if (invoiceTarget.list === 'transactions') {
+        if (state.mode === 'google') saveTransactionsToGoogle();
+        else { saveTransactionsToLocal(); updateDataViews(); }
+    } else if (invoiceTarget.list === 'fixedExpenses') {
+        if (state.mode === 'google') saveFixedExpensesToGoogle();
+        else { saveFixedExpensesToLocal(); updateDataViews(); }
+    }
+}
+
+// Beleg-Bereich eines Dialogs initialisieren (Buttons, Statustext, Ziel setzen)
+function setupInvoiceSection(prefix, list, id) {
+    invoiceTarget = id ? { prefix, list, id } : null;
+
+    const group = document.getElementById(`${prefix}-invoice-group`);
+    if (!group) return;
+    const btnAttach = document.getElementById(`btn-${prefix}-attach`);
+    const btnView = document.getElementById(`btn-${prefix}-view-invoice`);
+    const statusEl = document.getElementById(`${prefix}-invoice-status`);
+
+    const canAttach = state.mode === 'google' && !!id;
+    btnAttach.disabled = !canAttach;
+    btnView.style.display = 'none';
+
+    if (!id) {
+        statusEl.textContent = 'Eintrag zuerst speichern, dann Beleg anhängen.';
+        return;
+    }
+    if (state.mode !== 'google') {
+        statusEl.textContent = 'Belege sind nur im Google-Drive-Modus verfügbar.';
+        return;
+    }
+
+    const item = resolveInvoiceItem();
+    const driveFileId = item ? v(item, 'invoiceDriveFileId') : null;
+    if (driveFileId) {
+        btnView.style.display = 'block';
+        statusEl.textContent = v(item, 'invoiceFileName') || 'Beleg vorhanden';
+    } else {
+        statusEl.textContent = 'Noch kein Beleg angehängt.';
+    }
+}
+
+async function handleInvoiceFileSelected(e) {
     const file = e.target.files && e.target.files[0];
     e.target.value = ''; // erneute Auswahl derselben Datei ermöglichen
-    if (!file || !state.editingBuildingCostId || state.mode !== 'google') return;
+    if (!file || !invoiceTarget || state.mode !== 'google') return;
 
-    const item = (state.buildingCosts || []).find(b => (v(b, 'id')) === state.editingBuildingCostId);
+    const item = resolveInvoiceItem();
     if (!item) return;
 
-    const statusEl = document.getElementById('bk-invoice-status');
+    const prefix = invoiceTarget.prefix;
+    const statusEl = document.getElementById(`${prefix}-invoice-status`);
     if (statusEl) statusEl.textContent = 'Beleg wird hochgeladen...';
 
     try {
-        const blob = await compressImage(file);
-        const safeName = (v(item, 'name') || 'beleg').replace(/[^a-zA-Z0-9äöüÄÖÜß_-]/g, '_').substring(0, 40);
-        const fileName = `beleg_${safeName}_${new Date().toISOString().substring(0, 10)}.jpg`;
+        const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+        const blob = isPdf ? file : await compressImage(file);
+        const mime = isPdf ? 'application/pdf' : 'image/jpeg';
+        const ext = isPdf ? 'pdf' : 'jpg';
+
+        const rawName = v(item, 'name') || v(item, 'title') || 'beleg';
+        const safeName = rawName.replace(/[^a-zA-Z0-9äöüÄÖÜß_-]/g, '_').substring(0, 40);
+        const fileName = `beleg_${safeName}_${new Date().toISOString().substring(0, 10)}.${ext}`;
 
         // Alten Beleg ersetzen
         const oldId = v(item, 'invoiceDriveFileId');
 
-        const driveId = await uploadBinaryFile(fileName, blob, 'image/jpeg');
+        const driveId = await uploadBinaryFile(fileName, blob, mime);
         if (!driveId) throw new Error('Upload fehlgeschlagen');
 
         if (oldId) {
@@ -1550,10 +1592,11 @@ async function handleInvoicePhotoSelected(e) {
 
         setV(item, 'invoiceDriveFileId', driveId);
         setV(item, 'invoiceFileName', fileName);
-        persistBuildingCosts();
+        persistInvoiceList();
 
         if (statusEl) statusEl.textContent = fileName;
-        document.getElementById('btn-bk-view-invoice').style.display = 'block';
+        const btnView = document.getElementById(`btn-${prefix}-view-invoice`);
+        if (btnView) btnView.style.display = 'block';
     } catch (err) {
         console.error('Beleg-Upload fehlgeschlagen:', err);
         if (statusEl) statusEl.textContent = 'Upload fehlgeschlagen — bitte erneut versuchen.';
@@ -1563,30 +1606,49 @@ async function handleInvoicePhotoSelected(e) {
 let currentInvoiceObjectUrl = null;
 
 async function openInvoicePreview() {
-    const item = (state.buildingCosts || []).find(b => (v(b, 'id')) === state.editingBuildingCostId);
+    const item = resolveInvoiceItem();
     if (!item) return;
     const driveFileId = v(item, 'invoiceDriveFileId');
     if (!driveFileId) return;
 
+    const fileName = v(item, 'invoiceFileName') || 'Beleg';
+    const isPdf = fileName.toLowerCase().endsWith('.pdf');
+
     const img = document.getElementById('invoice-preview-img');
+    const pdfFrame = document.getElementById('invoice-preview-pdf');
     const title = document.getElementById('invoice-preview-title');
-    if (title) title.textContent = v(item, 'invoiceFileName') || 'Beleg';
-    if (img) img.src = '';
+    if (title) title.textContent = fileName;
+    if (img) { img.src = ''; img.style.display = isPdf ? 'none' : 'block'; }
+    if (pdfFrame) { pdfFrame.src = 'about:blank'; pdfFrame.style.display = isPdf ? 'block' : 'none'; }
 
     showOverlay('invoice-preview-dialog');
 
     const blob = await downloadBinaryFile(driveFileId);
-    if (blob && img) {
-        if (currentInvoiceObjectUrl) URL.revokeObjectURL(currentInvoiceObjectUrl);
+    if (!blob) {
+        if (title) title.textContent = 'Beleg konnte nicht geladen werden.';
+        return;
+    }
+
+    if (currentInvoiceObjectUrl) URL.revokeObjectURL(currentInvoiceObjectUrl);
+    if (isPdf) {
+        const pdfBlob = blob.type === 'application/pdf' ? blob : new Blob([blob], { type: 'application/pdf' });
+        currentInvoiceObjectUrl = URL.createObjectURL(pdfBlob);
+        if (pdfFrame) pdfFrame.src = currentInvoiceObjectUrl;
+    } else {
         currentInvoiceObjectUrl = URL.createObjectURL(blob);
-        img.src = currentInvoiceObjectUrl;
-    } else if (img) {
-        img.alt = 'Beleg konnte nicht geladen werden.';
+        if (img) img.src = currentInvoiceObjectUrl;
     }
 }
 
+// Beleg-Vorschau direkt aus einer Liste/Detailansicht heraus öffnen
+function openInvoicePreviewFor(list, id) {
+    const prefixMap = { buildingCosts: 'bk', transactions: 'tx', fixedExpenses: 'fx' };
+    invoiceTarget = { prefix: prefixMap[list] || 'tx', list, id };
+    openInvoicePreview();
+}
+
 async function handleInvoiceRemove() {
-    const item = (state.buildingCosts || []).find(b => (v(b, 'id')) === state.editingBuildingCostId);
+    const item = resolveInvoiceItem();
     if (!item) return;
     if (!window.confirm('Beleg wirklich löschen?')) return;
 
@@ -1596,11 +1658,16 @@ async function handleInvoiceRemove() {
     }
     setV(item, 'invoiceDriveFileId', null);
     setV(item, 'invoiceFileName', null);
-    persistBuildingCosts();
+    persistInvoiceList();
 
     hideOverlay('invoice-preview-dialog');
-    document.getElementById('btn-bk-view-invoice').style.display = 'none';
-    document.getElementById('bk-invoice-status').textContent = 'Noch kein Beleg angehängt.';
+    const prefix = invoiceTarget ? invoiceTarget.prefix : null;
+    if (prefix) {
+        const btnView = document.getElementById(`btn-${prefix}-view-invoice`);
+        if (btnView) btnView.style.display = 'none';
+        const statusEl = document.getElementById(`${prefix}-invoice-status`);
+        if (statusEl) statusEl.textContent = 'Noch kein Beleg angehängt.';
+    }
 }
 
 // ==================== OFFLINE-WARTESCHLANGE ====================

@@ -1482,3 +1482,11 @@ body, html {
     text-transform: uppercase;
     letter-spacing: 0.3px;
 }
+
+/* ==================== BELEG-VORSCHAU ==================== */
+/* Alle Overlays teilen sich z-index 100 — die Beleg-Vorschau wird aber AUS einem
+   geöffneten Bottom-Sheet heraus geöffnet und muss deshalb darüber liegen,
+   sonst erscheint das Bild hinter der Eingabemaske. */
+#invoice-preview-dialog {
+    z-index: 300;
+}
