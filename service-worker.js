@@ -1,7 +1,7 @@
 // Service Worker für Haushaltsbuch PWA
 // Cacht App-Shell für Offline-Nutzung
 
-const CACHE_NAME = 'haushaltsbuch-v14'; // v14: PDF-Belege werden mit PDF.js gerendert (iOS-Fix)
+const CACHE_NAME = 'haushaltsbuch-v16'; // v16: Hinweis für Belege, die nur am PC liegen
 
 // Dateien die immer gecacht werden (App Shell)
 const APP_SHELL = [

@@ -74,6 +74,17 @@ if ('serviceWorker' in navigator) {
             .then(reg => console.log('[PWA] Service Worker registriert:', reg.scope))
             .catch(err => console.warn('[PWA] Service Worker Fehler:', err));
     });
+
+    // Übernimmt ein NEUER Service Worker (App-Update), einmal neu laden, damit
+    // sofort die aktuellen Dateien laufen — sonst zeigt die PWA bis zum
+    // übernächsten Start noch die alte Version aus dem Cache.
+    const hadControllerAtLoad = !!navigator.serviceWorker.controller;
+    let hasReloadedForUpdate = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (!hadControllerAtLoad || hasReloadedForUpdate) return; // Erstinstallation: kein Reload nötig
+        hasReloadedForUpdate = true;
+        window.location.reload();
+    });
 }
 
 // ==================== PWA: INSTALL PROMPT ====================
@@ -1553,6 +1564,10 @@ function setupInvoiceSection(prefix, list, id) {
     if (driveFileId) {
         btnView.style.display = 'block';
         statusEl.textContent = v(item, 'invoiceFileName') || 'Beleg vorhanden';
+    } else if (v(item, 'invoicePath')) {
+        // Alt-Beleg, der nur lokal am PC liegt (vor Einführung des Drive-Uploads
+        // angehängt). Die Desktop-App lädt ihn beim nächsten Sync automatisch nach.
+        statusEl.textContent = 'Beleg nur am PC verfügbar — wird beim nächsten PC-Sync hochgeladen.';
     } else {
         statusEl.textContent = 'Noch kein Beleg angehängt.';
     }
