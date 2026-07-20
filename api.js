@@ -60,28 +60,51 @@ export async function uploadFileContent(fileId, contentObj) {
     return response && response.ok;
 }
 
-// Binärdatei (z. B. Beleg-Foto) nach Google Drive hochladen.
-// Zwei Schritte: Metadaten anlegen, dann Inhalt als Blob hochladen.
+// Binärdatei (z. B. Beleg-Foto/PDF) zusammen mit den Metadaten hochladen.
+// Der einzelne Multipart-Upload ist besonders auf iOS zuverlässiger als das
+// frühere Anlegen einer leeren Datei mit anschließendem PATCH des Inhalts.
 export async function uploadBinaryFile(fileName, blob, mimeType) {
+    if (!(blob instanceof Blob) || blob.size === 0) return null;
+
     try {
-        const metaResp = await apiCall('https://www.googleapis.com/drive/v3/files', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name: fileName, mimeType })
+        const boundary = `haushaltsbuch_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+        const metadata = JSON.stringify({ name: fileName, mimeType });
+        const prefix =
+            `--${boundary}\r\n` +
+            'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
+            `${metadata}\r\n` +
+            `--${boundary}\r\n` +
+            `Content-Type: ${mimeType}\r\n\r\n`;
+        const suffix = `\r\n--${boundary}--\r\n`;
+        const body = new Blob([prefix, blob, suffix], {
+            type: `multipart/related; boundary=${boundary}`
         });
-        if (!metaResp || !metaResp.ok) return null;
-        const file = await metaResp.json();
 
-        const upResp = await apiCall(`https://www.googleapis.com/upload/drive/v3/files/${file.id}?uploadType=media`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': mimeType },
-            body: blob
-        });
-        if (upResp && upResp.ok) return file.id;
+        const response = await apiCall(
+            'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,size,mimeType',
+            {
+                method: 'POST',
+                headers: { 'Content-Type': `multipart/related; boundary=${boundary}` },
+                body
+            }
+        );
+        if (!response || !response.ok) return null;
 
-        // Inhalt fehlgeschlagen → leere Metadaten-Datei wieder entfernen
-        await deleteDriveFile(file.id);
-        return null;
+        const file = await response.json();
+        if (!file.id) return null;
+
+        // Drive liefert die Größe als String. Bei einer Abweichung ist die
+        // Binärdatei unvollständig und darf nicht als gültiger Beleg verknüpft werden.
+        if (file.size !== undefined && Number(file.size) !== blob.size) {
+            console.error(
+                `[Drive API] Unvollständiger Binär-Upload von ${fileName}: ` +
+                `${file.size} statt ${blob.size} Bytes`
+            );
+            await deleteDriveFile(file.id);
+            return null;
+        }
+
+        return file.id;
     } catch (err) {
         console.error(`[Drive API] Fehler beim Binär-Upload von ${fileName}:`, err);
         return null;

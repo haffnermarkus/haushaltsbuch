@@ -231,6 +231,26 @@ export function setV(obj, key, value) {
     }
 }
 
+export function isTransactionGeneratedByFixedExpense(transaction, fixedExpense) {
+    if (!transaction || !fixedExpense || !v(transaction, 'isFixedCost')) return false;
+
+    const transactionSourceId = v(transaction, 'fixedExpenseId');
+    const fixedExpenseId = v(fixedExpense, 'id');
+    if (transactionSourceId) {
+        return transactionSourceId === fixedExpenseId;
+    }
+
+    // Kompatibilität mit automatisch erzeugten Desktop-Buchungen ohne Quell-ID.
+    const expectedTitle = `${v(fixedExpense, 'title') || ''} (Fixkosten)`;
+    const notes = v(transaction, 'notes') || '';
+    return v(transaction, 'title') === expectedTitle
+        && Number(v(transaction, 'amount') || 0) === Number(v(fixedExpense, 'amount') || 0)
+        && !!v(transaction, 'isIncome') === !!v(fixedExpense, 'isIncome')
+        && v(transaction, 'category') === v(fixedExpense, 'category')
+        && (v(transaction, 'assignedTo') || 'Gemeinsam') === (v(fixedExpense, 'assignedTo') || 'Gemeinsam')
+        && notes.startsWith('Automatisch gebucht aus Fixkosten.');
+}
+
 // ==================== HAUSKOSTEN ====================
 // Standardliste identisch zur Desktop-App (GetDefaultHouseExpenses)
 export function getDefaultHouseExpenses() {

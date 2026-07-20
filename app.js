@@ -16,7 +16,8 @@ import {
     saveHouseExpensesToLocal,
     getDefaultHouseExpenses,
     v,
-    setV
+    setV,
+    isTransactionGeneratedByFixedExpense
 } from './state.js';
 
 import {
@@ -1160,14 +1161,29 @@ function handleFixedExpenseDeleteConfirmed() {
     const id = state.deletingFixedExpenseId;
     if (id) {
         const idx = state.fixedExpenses.findIndex(f => (f.id || f.Id) === id);
+        const fixedExpense = idx !== -1 ? state.fixedExpenses[idx] : null;
+        let transactionsChanged = false;
+
+        if (fixedExpense) {
+            const deletedAt = new Date().toISOString();
+            state.transactions.forEach(transaction => {
+                if (!isTransactionGeneratedByFixedExpense(transaction, fixedExpense)) return;
+                setV(transaction, 'isDeleted', true);
+                setV(transaction, 'updatedAt', deletedAt);
+                transactionsChanged = true;
+            });
+        }
+
         if (idx !== -1) {
             state.fixedExpenses.splice(idx, 1);
         }
 
         if (state.mode === 'google') {
             saveFixedExpensesToGoogle();
+            if (transactionsChanged) saveTransactionsToGoogle();
         } else {
             saveFixedExpensesToLocal();
+            if (transactionsChanged) saveTransactionsToLocal();
             updateDataViews();
         }
     }
@@ -1523,15 +1539,16 @@ function resolveInvoiceItem() {
     return (state[invoiceTarget.list] || []).find(x => (v(x, 'id')) === invoiceTarget.id) || null;
 }
 
-function persistInvoiceList() {
+async function persistInvoiceList() {
     if (!invoiceTarget) return;
     if (invoiceTarget.list === 'buildingCosts') {
-        persistBuildingCosts();
+        if (state.mode === 'google') await saveBuildingCostsToGoogle();
+        else persistBuildingCosts();
     } else if (invoiceTarget.list === 'transactions') {
-        if (state.mode === 'google') saveTransactionsToGoogle();
+        if (state.mode === 'google') await saveTransactionsToGoogle();
         else { saveTransactionsToLocal(); updateDataViews(); }
     } else if (invoiceTarget.list === 'fixedExpenses') {
-        if (state.mode === 'google') saveFixedExpensesToGoogle();
+        if (state.mode === 'google') await saveFixedExpensesToGoogle();
         else { saveFixedExpensesToLocal(); updateDataViews(); }
     }
 }
@@ -1607,7 +1624,10 @@ async function handleInvoiceFileSelected(e) {
 
         setV(item, 'invoiceDriveFileId', driveId);
         setV(item, 'invoiceFileName', fileName);
-        persistInvoiceList();
+        // Sonst kann ein späterer Merge die neue Beleg-Verknüpfung mit dem
+        // älteren Stand ohne Anhang überschreiben.
+        setV(item, 'updatedAt', new Date().toISOString());
+        await persistInvoiceList();
 
         if (statusEl) statusEl.textContent = fileName;
         const btnView = document.getElementById(`btn-${prefix}-view-invoice`);
@@ -1685,6 +1705,21 @@ async function renderPdfPreview(blob) {
     }
 }
 
+async function isPdfInvoice(blob, fileName) {
+    if ((fileName || '').toLowerCase().endsWith('.pdf')) return true;
+    if ((blob.type || '').toLowerCase().split(';')[0] === 'application/pdf') return true;
+
+    // Fallback für ältere Einträge ohne Dateinamen bzw. für Browser, die beim
+    // Download keinen MIME-Typ mitliefern.
+    const header = new Uint8Array(await blob.slice(0, 5).arrayBuffer());
+    return header.length === 5
+        && header[0] === 0x25 // %
+        && header[1] === 0x50 // P
+        && header[2] === 0x44 // D
+        && header[3] === 0x46 // F
+        && header[4] === 0x2D; // -
+}
+
 async function openInvoicePreview() {
     const item = resolveInvoiceItem();
     if (!item) return;
@@ -1692,7 +1727,6 @@ async function openInvoicePreview() {
     if (!driveFileId) return;
 
     const fileName = v(item, 'invoiceFileName') || 'Beleg';
-    const isPdf = fileName.toLowerCase().endsWith('.pdf');
 
     const img = document.getElementById('invoice-preview-img');
     const pdfPages = document.getElementById('invoice-preview-pdf-pages');
@@ -1707,9 +1741,9 @@ async function openInvoicePreview() {
 
     try {
         const blob = await downloadBinaryFile(driveFileId);
-        if (!blob) throw new Error('Download fehlgeschlagen');
+        if (!blob || blob.size === 0) throw new Error('Download fehlgeschlagen oder Datei ist leer');
 
-        if (isPdf) {
+        if (await isPdfInvoice(blob, fileName)) {
             await renderPdfPreview(blob);
         } else {
             if (currentInvoiceObjectUrl) URL.revokeObjectURL(currentInvoiceObjectUrl);
@@ -1742,7 +1776,8 @@ async function handleInvoiceRemove() {
     }
     setV(item, 'invoiceDriveFileId', null);
     setV(item, 'invoiceFileName', null);
-    persistInvoiceList();
+    setV(item, 'updatedAt', new Date().toISOString());
+    await persistInvoiceList();
 
     hideOverlay('invoice-preview-dialog');
     const prefix = invoiceTarget ? invoiceTarget.prefix : null;
