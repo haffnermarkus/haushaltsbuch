@@ -1,7 +1,7 @@
 // Service Worker für Haushaltsbuch PWA
 // Cacht App-Shell für Offline-Nutzung
 
-const CACHE_NAME = 'haushaltsbuch-v18'; // v18: zuverlässiger PDF-Beleg-Upload und PDF-Erkennung
+const CACHE_NAME = 'haushaltsbuch-v19'; // v19: mobiler Beleg-Upload über Drive-Upload-Session
 
 // Dateien die immer gecacht werden (App Shell)
 const APP_SHELL = [

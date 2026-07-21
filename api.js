@@ -60,35 +60,44 @@ export async function uploadFileContent(fileId, contentObj) {
     return response && response.ok;
 }
 
-// Binärdatei (z. B. Beleg-Foto/PDF) zusammen mit den Metadaten hochladen.
-// Der einzelne Multipart-Upload ist besonders auf iOS zuverlässiger als das
-// frühere Anlegen einer leeren Datei mit anschließendem PATCH des Inhalts.
+// Binärdatei (z. B. Beleg-Foto/PDF) als fortsetzbaren Upload übertragen.
+// Google empfiehlt diesen Weg für mobile Apps; er funktioniert außerdem auch
+// für Belege über der 5-MB-Grenze eines Multipart-Uploads.
 export async function uploadBinaryFile(fileName, blob, mimeType) {
     if (!(blob instanceof Blob) || blob.size === 0) return null;
 
     try {
-        const boundary = `haushaltsbuch_${Date.now()}_${Math.random().toString(16).slice(2)}`;
-        const metadata = JSON.stringify({ name: fileName, mimeType });
-        const prefix =
-            `--${boundary}\r\n` +
-            'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
-            `${metadata}\r\n` +
-            `--${boundary}\r\n` +
-            `Content-Type: ${mimeType}\r\n\r\n`;
-        const suffix = `\r\n--${boundary}--\r\n`;
-        const body = new Blob([prefix, blob, suffix], {
-            type: `multipart/related; boundary=${boundary}`
-        });
-
-        const response = await apiCall(
-            'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,size,mimeType',
+        const initResponse = await apiCall(
+            'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id,size,mimeType',
             {
                 method: 'POST',
-                headers: { 'Content-Type': `multipart/related; boundary=${boundary}` },
-                body
+                headers: {
+                    'Content-Type': 'application/json; charset=UTF-8',
+                    'X-Upload-Content-Type': mimeType
+                },
+                body: JSON.stringify({ name: fileName, mimeType })
             }
         );
-        if (!response || !response.ok) return null;
+        if (!initResponse || !initResponse.ok) {
+            console.error(`[Drive API] Upload-Session für ${fileName} konnte nicht erstellt werden.`);
+            return null;
+        }
+
+        const uploadUrl = initResponse.headers.get('Location');
+        if (!uploadUrl) {
+            console.error(`[Drive API] Upload-Session für ${fileName} enthält keine Zieladresse.`);
+            return null;
+        }
+
+        const response = await apiCall(uploadUrl, {
+            method: 'PUT',
+            headers: { 'Content-Type': mimeType },
+            body: blob
+        });
+        if (!response || !response.ok) {
+            console.error(`[Drive API] Dateiinhalt von ${fileName} konnte nicht hochgeladen werden.`);
+            return null;
+        }
 
         const file = await response.json();
         if (!file.id) return null;
