@@ -1,7 +1,10 @@
 // Global State Management for Haushaltsbuch PWA
+import { calculateHousingTotal, isSafeIconGlyph, shouldApplySpecialPayment } from './sync-utils.js';
+
 export const state = {
     mode: 'local', // 'local' or 'google'
     accessToken: null,
+    accountContextId: null,
     fileId: null,
     clientId: localStorage.getItem('gdrive_client_id') || '',
     apiKey: localStorage.getItem('gdrive_api_key') || '',
@@ -19,19 +22,23 @@ export const state = {
     activeTab: 'dashboard',
     buildingCosts: [],
     houseExpenses: [],
-    houseExpensesFileId: localStorage.getItem('gdrive_house_expenses_file_id') || null,
+    houseExpensesFileId: null,
     editingHouseExpenseId: null,
     editingBuildingCostId: null,
     selectedOverviewMonth: new Date().getMonth() + 1, // Monatsübersicht: gewählter Monat
-    buildingCostsFileId: localStorage.getItem('gdrive_building_costs_file_id') || null,
-    fixedExpensesFileId: localStorage.getItem('gdrive_fixed_expenses_file_id') || null, // Neu
-    loansFileId: localStorage.getItem('gdrive_loans_file_id') || null, // Neu
-    scenarioSettingsFileId: localStorage.getItem('gdrive_scenario_settings_file_id') || null,
+    buildingCostsFileId: null,
+    fixedExpensesFileId: null, // Neu
+    loansFileId: null, // Neu
+    scenarioSettingsFileId: null,
     scenarioSettings: {},
     budgetCategories: [], // Loaded dynamically from scenario_settings.json
     partner1Name: 'Markus',
     partner2Name: 'Maren'
 };
+
+export const DEFAULT_FIXED_EXPENSE_START_DATE = '2026-07-01';
+const DEFAULT_FIXED_EXPENSE_START_DATE_ISO = `${DEFAULT_FIXED_EXPENSE_START_DATE}T00:00:00.000Z`;
+export const CURRENT_FIXED_EXPENSE_START_DATE_SCHEMA_VERSION = 1;
 
 export const MONTH_NAMES = [
     "Januar", "Februar", "März", "April", "Mai", "Juni", 
@@ -101,12 +108,14 @@ export const SEED_DATA = [
 ];
 
 export function escapeHtml(str) {
-    if (!str) return '';
-    return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+    if (str === null || str === undefined) return '';
+    return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
 }
 
 export function formatCurrency(val) {
-    return `${val.toFixed(2).replace('.', ',')} €`;
+    const numericValue = Number.parseFloat(val);
+    const safeValue = Number.isFinite(numericValue) ? numericValue : 0;
+    return `${safeValue.toFixed(2).replace('.', ',')} €`;
 }
 
 export function generateUUID() {
@@ -139,7 +148,7 @@ export function getCategoryEmoji(catName) {
     const cat = state.budgetCategories.find(c => c.name === catName || c.Name === catName);
     if (cat) {
         const glyph = cat.iconGlyph || cat.IconGlyph;
-        return GLYPH_TO_EMOJI[glyph] || glyph || '📦';
+        return GLYPH_TO_EMOJI[glyph] || (isSafeIconGlyph(glyph) ? String(glyph) : '📦');
     }
     return DEFAULT_CATEGORY_ICONS[catName] || '📦';
 }
@@ -151,16 +160,43 @@ export function loadFixedExpensesFromLocal() {
         state.fixedExpenses = JSON.parse(saved);
     } else {
         state.fixedExpenses = [
-            { id: "f1", title: "Miete", amount: 850.00, isIncome: false, category: "Wohnen", dayOfMonth: 1, assignedTo: "Gemeinsam", notes: "Monatliche Kaltmiete" },
-            { id: "f2", title: "Kindergeld", amount: 250.00, isIncome: true, category: "Gehalt", dayOfMonth: 5, assignedTo: "Gemeinsam", notes: "" },
-            { id: "f3", title: "Fitnessstudio", amount: 29.90, isIncome: false, category: "Freizeit", dayOfMonth: 15, assignedTo: "Partner 1", notes: "Mitgliedschaft" }
+            { id: "f1", title: "Miete", amount: 850.00, isIncome: false, category: "Wohnen", dayOfMonth: 1, assignedTo: "Gemeinsam", notes: "Monatliche Kaltmiete", startDate: DEFAULT_FIXED_EXPENSE_START_DATE_ISO, startDateSchemaVersion: CURRENT_FIXED_EXPENSE_START_DATE_SCHEMA_VERSION },
+            { id: "f2", title: "Kindergeld", amount: 250.00, isIncome: true, category: "Gehalt", dayOfMonth: 5, assignedTo: "Gemeinsam", notes: "", startDate: DEFAULT_FIXED_EXPENSE_START_DATE_ISO, startDateSchemaVersion: CURRENT_FIXED_EXPENSE_START_DATE_SCHEMA_VERSION },
+            { id: "f3", title: "Fitnessstudio", amount: 29.90, isIncome: false, category: "Freizeit", dayOfMonth: 15, assignedTo: "Partner 1", notes: "Mitgliedschaft", startDate: DEFAULT_FIXED_EXPENSE_START_DATE_ISO, startDateSchemaVersion: CURRENT_FIXED_EXPENSE_START_DATE_SCHEMA_VERSION }
         ];
-        localStorage.setItem('local_fixed_expenses', JSON.stringify(state.fixedExpenses));
     }
+
+    ensureFixedExpenseStartDates(state.fixedExpenses);
+    localStorage.setItem('local_fixed_expenses', JSON.stringify(state.fixedExpenses));
 }
 
 export function saveFixedExpensesToLocal() {
     localStorage.setItem('local_fixed_expenses', JSON.stringify(state.fixedExpenses));
+}
+
+export function ensureFixedExpenseStartDates(expenses) {
+    let changed = false;
+
+    (expenses || []).forEach(expense => {
+        const raw = v(expense, 'startDate');
+        const parsed = raw ? new Date(raw) : null;
+        const schemaVersion = Number(v(expense, 'startDateSchemaVersion') || 0);
+        const isLegacyPlaceholder = parsed && !isNaN(parsed.getTime()) &&
+            parsed.getUTCFullYear() === 2024 && parsed.getUTCMonth() === 0 && parsed.getUTCDate() === 1;
+
+        if (!parsed || isNaN(parsed.getTime()) ||
+            (schemaVersion < CURRENT_FIXED_EXPENSE_START_DATE_SCHEMA_VERSION && isLegacyPlaceholder)) {
+            setV(expense, 'startDate', DEFAULT_FIXED_EXPENSE_START_DATE_ISO);
+            changed = true;
+        }
+
+        if (schemaVersion < CURRENT_FIXED_EXPENSE_START_DATE_SCHEMA_VERSION) {
+            setV(expense, 'startDateSchemaVersion', CURRENT_FIXED_EXPENSE_START_DATE_SCHEMA_VERSION);
+            changed = true;
+        }
+    });
+
+    return changed;
 }
 
 // Local Storage for Loans
@@ -316,7 +352,12 @@ export function getTotalHouseExpenses() {
 // Wohnkosten wie in der Desktop-App: im Haus-Szenario die Hauskosten-Summe, sonst Miete.
 export function getHousingTotal() {
     const sc = getScenarioValues();
-    return (sc.isActive && sc.housingScenario === 'House') ? getTotalHouseExpenses() : sc.rentAmount;
+    return calculateHousingTotal({
+        isScenarioActive: sc.isActive,
+        housingScenario: sc.housingScenario,
+        rentAmount: sc.rentAmount,
+        houseExpenses: state.houseExpenses
+    });
 }
 
 function isRentTitle(title, category) {
@@ -324,11 +365,60 @@ function isRentTitle(title, category) {
 }
 
 function startDateReached(entry, year, month) {
-    const raw = v(entry, 'startDate');
-    if (!raw) return true;
+    const raw = v(entry, 'startDate') || DEFAULT_FIXED_EXPENSE_START_DATE_ISO;
     const sd = new Date(raw);
-    if (isNaN(sd.getTime())) return true;
+    if (isNaN(sd.getTime())) return false;
     return sd.getFullYear() < year || (sd.getFullYear() === year && (sd.getMonth() + 1) <= month);
+}
+
+// Monatlich tatsächlich fällige Kreditrate. Ratenkredite enden nach ihrer
+// geplanten Laufzeit; Annuitätendarlehen enden, sobald die Restschuld getilgt ist.
+export function getLoanPaymentForMonth(loan, year, month) {
+    const amount = Number.parseFloat(v(loan, 'loanAmount'));
+    const monthlyRate = Number.parseFloat(v(loan, 'monthlyRate'));
+    const interestRate = Number.parseFloat(v(loan, 'interestRate'));
+    if (!Number.isFinite(amount) || amount <= 0 || !Number.isFinite(monthlyRate) || monthlyRate <= 0) return 0;
+
+    const firstRaw = v(loan, 'firstPaymentDate') || v(loan, 'startDate');
+    const firstPayment = new Date(firstRaw);
+    if (Number.isNaN(firstPayment.getTime())) return 0;
+    const paymentIndex = ((year - firstPayment.getFullYear()) * 12) + (month - (firstPayment.getMonth() + 1));
+    if (paymentIndex < 0) return 0;
+
+    const loanType = v(loan, 'loanType') || 'Hausbaukredit';
+    if (loanType === 'Ratenkredit') {
+        const term = Number.parseInt(v(loan, 'plannedTermMonths'), 10);
+        if (!Number.isInteger(term) || term <= 0 || paymentIndex >= term) return 0;
+        const finalRate = Number.parseFloat(v(loan, 'customSchlussrate'));
+        if (paymentIndex === term - 1 && Number.isFinite(finalRate) && finalRate > 0) return finalRate;
+        return monthlyRate;
+    }
+
+    const monthlyInterest = Number.isFinite(interestRate) ? Math.max(0, interestRate) / 100 / 12 : 0;
+    let debt = amount;
+    const specialPayments = v(loan, 'oneTimeSondertilgungen') || [];
+    for (let index = 0; index <= paymentIndex; index++) {
+        if (debt <= 0.005) return 0;
+        const interest = Math.round(debt * monthlyInterest * 100) / 100;
+        const payment = Math.min(monthlyRate, debt + interest);
+        if (index === paymentIndex) return Math.round(payment * 100) / 100;
+        const repayment = Math.max(0, payment - interest);
+        debt = Math.max(0, Math.round((debt - repayment) * 100) / 100);
+
+        if (debt > 0 && (index + 1) % 12 === 0) {
+            const loanYear = Math.floor(index / 12) + 1;
+            const special = specialPayments.reduce((sum, item) => {
+                const itemYear = Number.parseInt(v(item, 'year'), 10);
+                const itemAmount = Number.parseFloat(v(item, 'amount'));
+                const enabled = v(item, 'isApplied') !== false;
+                return itemYear === loanYear && enabled && Number.isFinite(itemAmount) && itemAmount > 0
+                    ? sum + itemAmount
+                    : sum;
+            }, 0);
+            debt = Math.max(0, Math.round((debt - special) * 100) / 100);
+        }
+    }
+    return 0;
 }
 
 // ==================== MONATS-BERECHNUNG (Port von GetMonthlyTotals, C#) ====================
@@ -337,7 +427,6 @@ export function computeMonthlyTotals(year, month, partnerFilter) {
     const sc = getScenarioValues();
     const housingTotal = getHousingTotal();
     const childTotal = (sc.isActive && sc.isBabyActive) ? sc.childExpenses : 0;
-    const p2Salary = (sc.isActive && sc.isBabyActive) ? (sc.effectiveEg + sc.kindergeld) : sc.p2Income;
     const p1HousingShare = housingTotal * (sc.p1SharePercent / 100);
     const p2HousingShare = housingTotal * ((100 - sc.p1SharePercent) / 100);
 
@@ -429,28 +518,13 @@ export function computeMonthlyTotals(year, month, partnerFilter) {
         // Dynamische Schätzung wie am PC
         const fixedList = state.fixedExpenses || [];
 
-        // Gehälter
-        if (partnerFilter === 'Partner 1' || partnerFilter === 'Alle') {
-            if (sc.p1Income > 0) {
-                fixedInc += sc.p1Income;
-                fixedIncomeRows.push({ title: `Gehalt (${state.partner1Name})`, amount: sc.p1Income, category: 'Gehalt', assignedTo: 'Partner 1', date: new Date(year, month - 1, 1) });
-            }
-        }
-        if (partnerFilter === 'Partner 2' || partnerFilter === 'Alle') {
-            if (p2Salary > 0) {
-                const title = (sc.isActive && sc.isBabyActive) ? `Elterngeld + Kindergeld (${state.partner2Name})` : `Gehalt (${state.partner2Name})`;
-                fixedInc += p2Salary;
-                fixedIncomeRows.push({ title, amount: p2Salary, category: 'Gehalt', assignedTo: 'Partner 2', date: new Date(year, month - 1, 1) });
-            }
-        }
-
-        // Fixe Einnahmen (bei P1/P2 ohne Kategorie "Gehalt", wie am PC)
+        // Explizit konfigurierte Fixeinnahmen gehören in die Monatsübersicht.
+        // Szenario-Gehälter bleiben davon getrennte Projektionen.
         fixedList.forEach(f => {
             if (!v(f, 'isIncome')) return;
             if (!startDateReached(f, year, month)) return;
             const assignedTo = v(f, 'assignedTo') || 'Gemeinsam';
             if (!matchPartner(assignedTo)) return;
-            if ((partnerFilter === 'Partner 1' || partnerFilter === 'Partner 2') && (v(f, 'category') === 'Gehalt')) return;
             const amount = parseFloat(v(f, 'amount') || 0);
             fixedInc += amount;
             const day = Math.min(Math.max(parseInt(v(f, 'dayOfMonth') || 1), 1), 28);
@@ -472,7 +546,7 @@ export function computeMonthlyTotals(year, month, partnerFilter) {
             if (v(l, 'includeInFixedCosts') === false) return;
             const assignedTo = v(l, 'assignedTo') || 'Gemeinsam';
             if (!matchPartner(assignedTo)) return;
-            fixedExp += parseFloat(v(l, 'monthlyRate') || 0);
+            fixedExp += getLoanPaymentForMonth(l, year, month);
         });
 
         fixedExp += housingShare + childShare;
@@ -673,7 +747,7 @@ export function runAnnuitySimulation(loan, applySondertilgung) {
                     const isApp = item.isApplied !== undefined ? item.isApplied : (item.IsApplied !== undefined ? item.IsApplied : true);
 
                     if (yr === currentYearIndex) {
-                        if (applySondertilgung || isApp) {
+                        if (shouldApplySpecialPayment(applySondertilgung, isApp)) {
                             sondertilgung += amt;
                         }
                     }

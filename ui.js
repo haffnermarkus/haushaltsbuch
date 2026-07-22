@@ -7,8 +7,10 @@ import {
     runAnnuitySimulation,
     updateSingleLoanCalculations,
     saveLoansToLocal,
+    DEFAULT_FIXED_EXPENSE_START_DATE,
     v,
     computeMonthlyTotals,
+    getLoanPaymentForMonth,
     getScenarioValues,
     getTotalHouseExpenses,
     getHousingTotal
@@ -153,7 +155,7 @@ export function renderDashboard() {
                 
                 item.innerHTML = `
                     <div class="transaction-left">
-                        <div class="category-icon">${icon}</div>
+                        <div class="category-icon">${escapeHtml(icon)}</div>
                         <div class="transaction-details">
                             <h5 style="margin:0;">${escapeHtml(title)}</h5>
                             <div class="subtitle" style="font-size:10px;">${dateFormatted} • ${escapeHtml(getAssignedDisplayName(t.assignedTo || t.AssignedTo))}</div>
@@ -250,28 +252,24 @@ export function renderFilterableTransactions() {
         });
     }
 
-    // 4. Virtual Rent Shares
-    const rentAmount = parseFloat(settings.RentExpenseAmount || settings.rentExpenseAmount || 850.00);
-    const rentTotal = (isScenarioActive && housingScenario === 'House') ? 0 : rentAmount;
+    // 4. Canonical monthly housing costs (rent or the recurring house-expense list).
+    const housingTotal = getHousingTotal();
+    const isHouse = isScenarioActive && housingScenario === 'House';
 
-    if (rentTotal > 0) {
-        const activeMonths = [];
-        const seen = new Set();
-        state.transactions.forEach(t => {
-            if (t.isDeleted || t.IsDeleted) return;
-            const d = new Date(t.date || t.Date);
-            const key = `${d.getFullYear()}-${d.getMonth() + 1}`;
-            if (!seen.has(key)) {
-                seen.add(key);
-                activeMonths.push({ year: d.getFullYear(), month: d.getMonth() + 1 });
-            }
-        });
-
+    if (housingTotal > 0) {
         const curDate = new Date();
-        const curKey = `${curDate.getFullYear()}-${curDate.getMonth() + 1}`;
-        if (!seen.has(curKey)) {
-            activeMonths.push({ year: curDate.getFullYear(), month: curDate.getMonth() + 1 });
-        }
+        const targetMonth = yearVal !== 'All' && monthVal !== 'All'
+            ? { year: Number(yearVal), month: Number(monthVal) }
+            : { year: curDate.getFullYear(), month: curDate.getMonth() + 1 };
+        const hasBookedRent = state.transactions.some(transaction => {
+            if (transaction.isDeleted || transaction.IsDeleted || transaction.isIncome || transaction.IsIncome) return false;
+            if (!isRentExpense(transaction)) return false;
+            const date = new Date(transaction.date || transaction.Date);
+            return !Number.isNaN(date.getTime())
+                && date.getFullYear() === targetMonth.year
+                && date.getMonth() + 1 === targetMonth.month;
+        });
+        const activeMonths = hasBookedRent ? [] : [targetMonth];
 
         const p1Name = state.partner1Name || "Partner 1";
         const p2Name = state.partner2Name || "Partner 2";
@@ -279,70 +277,71 @@ export function renderFilterableTransactions() {
 
         activeMonths.forEach(am => {
             const dateVal = new Date(am.year, am.month - 1, 1);
-            const p1Share = rentTotal * (p1SharePercent / 100);
-            const p2Share = rentTotal * ((100 - p1SharePercent) / 100);
+            const p1Share = housingTotal * (p1SharePercent / 100);
+            const p2Share = housingTotal * ((100 - p1SharePercent) / 100);
+            const housingLabel = isHouse ? 'Hauskosten' : 'Mietkosten';
 
             if (assignVal === 'All') {
                 rawItems.push({
-                    id: `virtual-rent-p1-${am.year}-${am.month}`,
-                    title: `Mietkosten (${p1Name}-Anteil)`,
+                    id: `virtual-housing-p1-${am.year}-${am.month}`,
+                    title: `${housingLabel} (${p1Name}-Anteil)`,
                     amount: p1Share,
                     type: 'Fixkosten',
                     category: 'Wohnen',
                     assignedTo: 'Partner 1',
                     date: dateVal,
                     isIncome: false,
-                    notes: 'Anteilige Mietkosten'
+                    notes: `Anteilige ${housingLabel}`
                 });
                 rawItems.push({
-                    id: `virtual-rent-p2-${am.year}-${am.month}`,
-                    title: `Mietkosten (${p2Name}-Anteil)`,
+                    id: `virtual-housing-p2-${am.year}-${am.month}`,
+                    title: `${housingLabel} (${p2Name}-Anteil)`,
                     amount: p2Share,
                     type: 'Fixkosten',
                     category: 'Wohnen',
                     assignedTo: 'Partner 2',
                     date: dateVal,
                     isIncome: false,
-                    notes: 'Anteilige Mietkosten'
+                    notes: `Anteilige ${housingLabel}`
                 });
             }
             else if (assignVal === 'Partner 1') {
                 rawItems.push({
-                    id: `virtual-rent-p1-${am.year}-${am.month}`,
-                    title: `Mietkosten (${p1Name}-Anteil)`,
+                    id: `virtual-housing-p1-${am.year}-${am.month}`,
+                    title: `${housingLabel} (${p1Name}-Anteil)`,
                     amount: p1Share,
                     type: 'Fixkosten',
                     category: 'Wohnen',
                     assignedTo: 'Partner 1',
                     date: dateVal,
                     isIncome: false,
-                    notes: 'Anteilige Mietkosten'
+                    notes: `Anteilige ${housingLabel}`
                 });
             }
             else if (assignVal === 'Partner 2') {
                 rawItems.push({
-                    id: `virtual-rent-p2-${am.year}-${am.month}`,
-                    title: `Mietkosten (${p2Name}-Anteil)`,
+                    id: `virtual-housing-p2-${am.year}-${am.month}`,
+                    title: `${housingLabel} (${p2Name}-Anteil)`,
                     amount: p2Share,
                     type: 'Fixkosten',
                     category: 'Wohnen',
                     assignedTo: 'Partner 2',
                     date: dateVal,
                     isIncome: false,
-                    notes: 'Anteilige Mietkosten'
+                    notes: `Anteilige ${housingLabel}`
                 });
             }
             else if (assignVal === 'Gemeinsam') {
                 rawItems.push({
-                    id: `virtual-rent-shared-${am.year}-${am.month}`,
-                    title: `Mietkosten (Gemeinsam)`,
-                    amount: rentTotal,
+                    id: `virtual-housing-shared-${am.year}-${am.month}`,
+                    title: `${housingLabel} (Gemeinsam)`,
+                    amount: housingTotal,
                     type: 'Fixkosten',
                     category: 'Wohnen',
                     assignedTo: 'Gemeinsam',
                     date: dateVal,
                     isIncome: false,
-                    notes: 'Gemeinsame Mietkosten'
+                    notes: `Gemeinsame ${housingLabel}`
                 });
             }
         });
@@ -429,7 +428,7 @@ export function renderFilterableTransactions() {
 
         item.innerHTML = `
             <div class="transaction-left">
-                <div class="category-icon">${icon}</div>
+                <div class="category-icon">${escapeHtml(icon)}</div>
                 <div class="transaction-details">
                     <h5 style="margin:0;">${escapeHtml(title)}</h5>
                     <div class="subtitle" style="font-size:10px;">${dateFormatted} • ${escapeHtml(getAssignedDisplayName(t.assignedTo))}</div>
@@ -442,7 +441,7 @@ export function renderFilterableTransactions() {
             </div>
         `;
         
-        if (t.id && !t.id.toString().startsWith('virtual-rent-')) {
+        if (t.id && !t.id.toString().startsWith('virtual-housing-')) {
             item.style.cursor = 'pointer';
             item.addEventListener('click', () => showTransactionDetails(t.id));
         } else {
@@ -460,32 +459,45 @@ function isRentExpense(f) {
     return category === 'Wohnen' && (title.includes('miete') || title.includes('wohnungsmiete'));
 }
 
+function getIncludedLoanMonthlyTotal(year = new Date().getFullYear(), month = new Date().getMonth() + 1) {
+    return (state.loans || [])
+        .filter(loan => loan.includeInFixedCosts !== false && loan.IncludeInFixedCosts !== false)
+        .reduce((sum, loan) => sum + getLoanPaymentForMonth(loan, year, month), 0);
+}
+
+function getFixedExpenseStartDate(f) {
+    const parsed = new Date(v(f, 'startDate') || DEFAULT_FIXED_EXPENSE_START_DATE);
+    return isNaN(parsed.getTime()) ? new Date(DEFAULT_FIXED_EXPENSE_START_DATE) : parsed;
+}
+
 export function renderFixedExpenses() {
     const container = document.getElementById('fixed-expenses-list');
     if (!container) return;
     container.innerHTML = '';
 
     const list = state.fixedExpenses || [];
-    const activeLoans = (state.loans || []).filter(l => l.includeInFixedCosts !== false && l.IncludeInFixedCosts !== false);
+    const filterMonthVal = document.getElementById('fixed-filter-month') ? document.getElementById('fixed-filter-month').value : 'All';
+    const filterYearVal = document.getElementById('fixed-filter-year') ? document.getElementById('fixed-filter-year').value : 'All';
+    const now = new Date();
+    const loanYear = filterYearVal !== 'All' ? Number.parseInt(filterYearVal, 10) : now.getFullYear();
+    const loanMonth = filterMonthVal !== 'All' ? Number.parseInt(filterMonthVal, 10) : now.getMonth() + 1;
+    const activeLoans = (state.loans || []).filter(l =>
+        l.includeInFixedCosts !== false
+        && l.IncludeInFixedCosts !== false
+        && getLoanPaymentForMonth(l, loanYear, loanMonth) > 0
+    );
 
     const settings = state.scenarioSettings || {};
     const isScenarioActive = settings.IsScenarioModeActive || settings.isScenarioModeActive || false;
     const housingScenario = settings.HousingScenario || settings.housingScenario || 'Rent';
-    const rentAmount = parseFloat(settings.RentExpenseAmount || settings.rentExpenseAmount || 850.00);
-    
-    let housingTotal = rentAmount;
+    let housingTotal = getHousingTotal();
     let housingText = "Miete (Mietwohnung)";
     
     if (isScenarioActive && housingScenario === 'House') {
-        const bCosts = state.buildingCosts || [];
-        housingTotal = bCosts.reduce((sum, b) => sum + parseFloat(b.amount || b.Amount || 0), 0);
-        housingText = "Baukosten (Hausbau)";
+        housingText = "Hauskosten (monatlich)";
     }
 
     // Apply Filter based on StartDate
-    const filterMonthVal = document.getElementById('fixed-filter-month') ? document.getElementById('fixed-filter-month').value : 'All';
-    const filterYearVal = document.getElementById('fixed-filter-year') ? document.getElementById('fixed-filter-year').value : 'All';
-
     let filteredList = [...list];
     
     if (filterYearVal !== 'All') {
@@ -493,25 +505,19 @@ export function renderFixedExpenses() {
         if (filterMonthVal !== 'All') {
             const month = parseInt(filterMonthVal);
             filteredList = filteredList.filter(f => {
-                const startStr = f.startDate || f.StartDate;
-                if (!startStr) return true;
-                const sd = new Date(startStr);
+                const sd = getFixedExpenseStartDate(f);
                 return sd.getFullYear() < year || (sd.getFullYear() === year && (sd.getMonth() + 1) <= month);
             });
         } else {
             filteredList = filteredList.filter(f => {
-                const startStr = f.startDate || f.StartDate;
-                if (!startStr) return true;
-                const sd = new Date(startStr);
+                const sd = getFixedExpenseStartDate(f);
                 return sd.getFullYear() <= year;
             });
         }
     } else if (filterMonthVal !== 'All') {
         const month = parseInt(filterMonthVal);
         filteredList = filteredList.filter(f => {
-            const startStr = f.startDate || f.StartDate;
-            if (!startStr) return true;
-            const sd = new Date(startStr);
+            const sd = getFixedExpenseStartDate(f);
             return (sd.getMonth() + 1) <= month;
         });
     }
@@ -520,12 +526,13 @@ export function renderFixedExpenses() {
     filteredList.sort((a, b) => parseInt(a.dayOfMonth || a.DayOfMonth || 1) - parseInt(b.dayOfMonth || b.DayOfMonth || 1));
 
     // Calculate aggregates
-    const income = filteredList.filter(f => f.isIncome || f.IsIncome).reduce((sum, f) => sum + parseFloat(f.amount || f.Amount || 0), 0);
-    const loanFixedExp = activeLoans.reduce((sum, l) => sum + parseFloat(l.monthlyRate || l.MonthlyRate || 0), 0);
-    const expenses = filteredList.filter(f => !(f.isIncome || f.IsIncome) && !isRentExpense(f)).reduce((sum, f) => sum + parseFloat(f.amount || f.Amount || 0), 0) + loanFixedExp + housingTotal;
+    const nonHousingList = filteredList.filter(f => (f.isIncome || f.IsIncome) || !isRentExpense(f));
+    const income = nonHousingList.filter(f => f.isIncome || f.IsIncome).reduce((sum, f) => sum + parseFloat(f.amount || f.Amount || 0), 0);
+    const loanFixedExp = getIncludedLoanMonthlyTotal(loanYear, loanMonth);
+    const expenses = nonHousingList.filter(f => !(f.isIncome || f.IsIncome)).reduce((sum, f) => sum + parseFloat(f.amount || f.Amount || 0), 0) + loanFixedExp + housingTotal;
     const surplus = income - expenses;
 
-    document.getElementById('fixed-expenses-count').textContent = filteredList.length + activeLoans.length + 1;
+    document.getElementById('fixed-expenses-count').textContent = nonHousingList.length + activeLoans.length + 1;
     const incomeEl = document.getElementById('fixed-total-income');
     if (incomeEl) incomeEl.textContent = `+${income.toFixed(2).replace('.', ',')} €`;
     const expensesEl = document.getElementById('fixed-total-expenses');
@@ -565,11 +572,11 @@ export function renderFixedExpenses() {
     `;
     container.appendChild(housingItem);
 
-    if (filteredList.length === 0 && activeLoans.length === 0) {
+    if (nonHousingList.length === 0 && activeLoans.length === 0) {
         return;
     }
 
-    filteredList.forEach(f => {
+    nonHousingList.forEach(f => {
         const item = document.createElement('div');
         item.className = 'transaction-item';
 
@@ -578,15 +585,16 @@ export function renderFixedExpenses() {
         const title = f.title || f.Title || '';
         const amt = f.amount || f.Amount || 0;
         const isIncome = f.isIncome !== undefined ? f.isIncome : (f.IsIncome !== undefined ? f.IsIncome : false);
-        const day = f.dayOfMonth || f.DayOfMonth || 1;
+        const day = Math.max(1, Math.min(31, Number.parseInt(f.dayOfMonth || f.DayOfMonth || 1, 10) || 1));
         const assigned = getAssignedDisplayName(f.assignedTo || f.AssignedTo);
+        const startDateText = getFixedExpenseStartDate(f).toLocaleDateString('de-DE');
         
         item.innerHTML = `
             <div class="transaction-left">
-                <div class="category-icon">${icon}</div>
+                <div class="category-icon">${escapeHtml(icon)}</div>
                 <div class="transaction-details">
                     <h5 style="margin:0;">${escapeHtml(title)}</h5>
-                    <div class="subtitle" style="font-size:10px;">Jeden ${day}. des Monats • ${escapeHtml(assigned)}</div>
+                    <div class="subtitle" style="font-size:10px;">Ab ${startDateText} • Jeden ${day}. des Monats • ${escapeHtml(assigned)}</div>
                 </div>
             </div>
             <div class="transaction-right">
@@ -594,12 +602,12 @@ export function renderFixedExpenses() {
                     ${isIncome ? '+' : '-'}${parseFloat(amt).toFixed(2).replace('.', ',')} €
                 </span>
                 <div class="transaction-actions">
-                    <button class="action-btn edit-fixed" data-id="${f.id || f.Id}">
+                    <button class="action-btn edit-fixed" data-id="${escapeHtml(f.id || f.Id || '')}">
                         <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
                             <path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
                         </svg>
                     </button>
-                    <button class="action-btn delete-fixed" data-id="${f.id || f.Id}">
+                    <button class="action-btn delete-fixed" data-id="${escapeHtml(f.id || f.Id || '')}">
                         <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
                             <polyline points="3 6 5 6 21 6"></polyline>
                             <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
@@ -630,14 +638,14 @@ export function renderFixedExpenses() {
         const cat = 'Kredite';
         const icon = '🏦';
         const title = l.name || l.Name || 'Kreditrate';
-        const amt = l.monthlyRate || l.MonthlyRate || 0;
+        const amt = getLoanPaymentForMonth(l, loanYear, loanMonth);
         const dayDate = new Date(l.firstPaymentDate || l.FirstPaymentDate || new Date());
         const day = isNaN(dayDate.getDate()) ? 1 : dayDate.getDate();
         const assigned = getAssignedDisplayName(l.assignedTo || l.AssignedTo);
 
         item.innerHTML = `
             <div class="transaction-left">
-                <div class="category-icon">${icon}</div>
+                <div class="category-icon">${escapeHtml(icon)}</div>
                 <div class="transaction-details">
                     <h5 style="margin:0;">${escapeHtml(title)} <span style="font-size:10px; color:var(--accent); font-weight:normal;">(Kredit)</span></h5>
                     <div class="subtitle" style="font-size:10px;">Jeden ${day}. des Monats • ${escapeHtml(assigned)}</div>
@@ -738,7 +746,7 @@ export function renderLoans() {
                     </div>
                     <div class="stat-box">
                         <span class="label">Restlaufzeit</span>
-                        <span class="value income" style="font-size:14px; font-weight:600;">${remainingTerm}</span>
+                        <span class="value income" style="font-size:14px; font-weight:600;">${escapeHtml(remainingTerm)}</span>
                     </div>
                     <div class="stat-box">
                         <span class="label">Zuordnung</span>
@@ -791,7 +799,7 @@ export function renderLoans() {
                     row.style.alignItems = 'center';
                     row.style.padding = '6px 0';
                     
-                    const year = item.year !== undefined ? item.year : item.Year;
+                    const year = Number.parseInt(item.year !== undefined ? item.year : item.Year, 10) || 0;
                     const amount = parseFloat(item.amount !== undefined ? item.amount : item.Amount || 0);
                     const applied = item.isApplied !== undefined ? item.isApplied : (item.IsApplied !== undefined ? item.IsApplied : true);
                     
@@ -803,14 +811,15 @@ export function renderLoans() {
                         <span style="font-size:13px; font-weight:700; color:var(--accent);">${formatCurrency(amount)}</span>
                     `;
                     // Bind checkbox change
-                    row.querySelector('.st-toggle-checkbox').addEventListener('change', (e) => {
+                    row.querySelector('.st-toggle-checkbox').addEventListener('change', async (e) => {
                         const checked = e.target.checked;
-                        if (item.isApplied !== undefined) item.isApplied = checked;
-                        if (item.IsApplied !== undefined) item.IsApplied = checked;
+                        item.isApplied = checked;
+                        item.IsApplied = checked;
                         
                         // Save and reload
                         if (state.mode === 'google') {
-                            import('./app.js').then(app => app.saveLoansToGoogle());
+                            const app = await import('./app.js');
+                            await app.saveLoansToGoogle();
                         } else {
                             saveLoansToLocal();
                             renderLoans();
@@ -841,7 +850,7 @@ export function renderLoans() {
                 const end = parseFloat(row.endBalance || row.EndBalance || 0);
 
                 tr.innerHTML = `
-                    <td style="padding: 10px 12px; font-weight:600;">${p}</td>
+                    <td style="padding: 10px 12px; font-weight:600;">${escapeHtml(p)}</td>
                     <td style="padding: 10px 12px;">${formatCurrency(start)}</td>
                     <td style="padding: 10px 12px; color:var(--color-expense);">${formatCurrency(interest)}</td>
                     <td style="padding: 10px 12px; color:var(--color-income);">${formatCurrency(repayment)}</td>
@@ -1018,7 +1027,7 @@ export function renderBuildingCosts() {
             }
             
             itemsHtml += `
-                <div class="baukosten-item-row editable" data-bkid="${item.id || item.Id || ''}">
+                <div class="baukosten-item-row editable" data-bkid="${escapeHtml(item.id || item.Id || '')}">
                     <div class="baukosten-item-left">
                         <div class="baukosten-item-status-icon ${statusClass}">
                             ${statusIcon}
@@ -1038,7 +1047,7 @@ export function renderBuildingCosts() {
         
         card.innerHTML = `
             <div class="baukosten-category-header">
-                <h4>${category}</h4>
+                <h4>${escapeHtml(category)}</h4>
                 <div class="baukosten-category-header-right">
                     <div class="baukosten-category-header-amounts">
                         <span class="total-amount">${formatCurrency(catTotal)}</span>
@@ -1173,7 +1182,7 @@ export function renderMonthsOverview() {
         const dateFormatted = t.date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
         item.innerHTML = `
             <div class="transaction-left">
-                <div class="category-icon">${icon}</div>
+                <div class="category-icon">${escapeHtml(icon)}</div>
                 <div class="transaction-details">
                     <h5 style="margin:0;">${escapeHtml(t.title)}</h5>
                     <div class="subtitle" style="font-size:10px;">${dateFormatted} • ${escapeHtml(getAssignedDisplayName(t.assignedTo))}</div>
@@ -1226,7 +1235,7 @@ export function renderHouseExpenses() {
         const icon = cat === 'Finanzierung' ? '🏦' : '💡';
         item.innerHTML = `
             <div class="transaction-left">
-                <div class="category-icon">${icon}</div>
+                <div class="category-icon">${escapeHtml(icon)}</div>
                 <div class="transaction-details">
                     <h5 style="margin:0;">${escapeHtml(v(h, 'name') || '')}</h5>
                     <div class="subtitle" style="font-size:10px;">${escapeHtml(cat)}</div>
@@ -1288,10 +1297,7 @@ export function renderScenario() {
     const fixedList = state.fixedExpenses || [];
 
     const inRange = (f) => {
-        const raw = v(f, 'startDate');
-        if (!raw) return true;
-        const sd = new Date(raw);
-        if (isNaN(sd.getTime())) return true;
+        const sd = getFixedExpenseStartDate(f);
         return sd.getFullYear() < year || (sd.getFullYear() === year && (sd.getMonth() + 1) <= month);
     };
 
@@ -1305,7 +1311,8 @@ export function renderScenario() {
     const p2Term = sc.isBabyActive ? (sc.effectiveEg + sc.kindergeld) : sc.p2Income;
     const simIncome = sc.p1Income + p2Term + otherFixedIncome;
     const housingExpenses = sc.housingScenario === 'House' ? getTotalHouseExpenses() : sc.rentAmount;
-    const simExpenses = housingExpenses + otherFixedExpenses + (sc.isBabyActive ? sc.childExpenses : 0);
+    const loanFixedExpenses = getIncludedLoanMonthlyTotal();
+    const simExpenses = housingExpenses + otherFixedExpenses + loanFixedExpenses + (sc.isBabyActive ? sc.childExpenses : 0);
     const surplus = simIncome - simExpenses;
 
     const incEl = document.getElementById('sc-sim-income');
@@ -1349,32 +1356,41 @@ export function populateCategoryDropdown() {
     const curFixedVal = selectFixed ? selectFixed.value : '';
     
     if (state.budgetCategories && state.budgetCategories.length > 0) {
-        const optionListHtml = state.budgetCategories.map(cat => {
-            const name = cat.name || cat.Name;
-            return `<option value="${name}">${name}</option>`;
-        }).join('');
+        const names = state.budgetCategories
+            .map(cat => {
+                const rawName = cat && (cat.name ?? cat.Name);
+                if (typeof rawName !== 'string') return '';
+                const name = rawName.trim();
+                return name.length <= 80 && !/[\u0000-\u001f\u007f]/u.test(name) ? name : '';
+            })
+            .filter((name, index, all) => name && all.indexOf(name) === index);
+
+        const fillSelect = (target, includeAll = false) => {
+            if (!target) return;
+            target.replaceChildren();
+            if (includeAll) target.add(new Option('Alle Kategorien', 'All'));
+            names.forEach(name => target.add(new Option(name, name)));
+        };
         
         if (select) {
-            select.innerHTML = optionListHtml;
-            if (state.budgetCategories.some(c => (c.name || c.Name) === curVal)) {
+            fillSelect(select);
+            if (names.includes(curVal)) {
                 select.value = curVal;
             } else {
-                select.value = state.budgetCategories[0].name || state.budgetCategories[0].Name;
+                select.value = names[0] || '';
             }
         }
         
         if (selectFixed) {
-            selectFixed.innerHTML = optionListHtml;
-            if (state.budgetCategories.some(c => (c.name || c.Name) === curFixedVal)) {
+            fillSelect(selectFixed);
+            if (names.includes(curFixedVal)) {
                 selectFixed.value = curFixedVal;
             } else {
-                selectFixed.value = state.budgetCategories[0].name || state.budgetCategories[0].Name;
+                selectFixed.value = names[0] || '';
             }
         }
 
-        if (selectFilter) {
-            selectFilter.innerHTML = '<option value="All">Alle Kategorien</option>' + optionListHtml;
-        }
+        fillSelect(selectFilter, true);
     }
 }
 

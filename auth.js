@@ -1,21 +1,26 @@
-import { state, showScreen, updateSyncStatusIndicator, handleDisconnect } from './app.js';
-import { searchFile, downloadFileContent, createFileInGoogle } from './api.js';
-import { SEED_DATA } from './state.js';
+import {
+    state,
+    showScreen,
+    updateSyncStatusIndicator,
+    bindDriveAccountContext,
+    rememberDriveFileId,
+    loadTransactionsFromGoogle,
+    consumeLaunchAction
+} from './app.js';
+import { createFileInGoogle, getDriveAccountContext, searchFile } from './api.js';
 
-// Erstellt den GIS Token Client und gibt ihn zurück
 export function createTokenClient(callback) {
     return google.accounts.oauth2.initTokenClient({
         client_id: state.clientId,
-        scope: 'https://www.googleapis.com/auth/drive',
-        callback: callback,
+        // Least-privilege access: only files created or explicitly opened with
+        // this OAuth client are visible to the app.
+        scope: 'https://www.googleapis.com/auth/drive.file',
+        callback
     });
 }
 
-// Versucht lautlos eine neue Session zu holen (ohne Popup wenn bereits eingeloggt)
 export function tryAutoReconnect() {
-    if (!state.clientId) return;
-    const savedFileId = localStorage.getItem('gdrive_file_id');
-    if (!savedFileId) return;
+    if (!state.clientId || !localStorage.getItem('gdrive_last_account_context')) return;
 
     try {
         const client = createTokenClient((response) => {
@@ -23,18 +28,17 @@ export function tryAutoReconnect() {
                 console.log('[Auth] Stilles Re-Auth fehlgeschlagen:', response.error);
                 return;
             }
-            onAuthSuccess(response.access_token, savedFileId);
+            void onAuthSuccess(response.access_token);
         });
         client.requestAccessToken({ prompt: 'none' });
-    } catch (e) {
-        console.warn('[Auth] Auto-Reconnect nicht möglich:', e.message);
+    } catch (error) {
+        console.warn('[Auth] Auto-Reconnect nicht möglich:', error.message);
     }
 }
 
-// Wird beim Klick auf "Mit Google Drive verbinden" aufgerufen
 export function handleGoogleConnect() {
     if (!state.clientId) {
-        alert("Bitte konfigurieren Sie zuerst Ihre Google Client ID in den Einstellungen!");
+        alert('Bitte konfigurieren Sie zuerst Ihre Google Client ID in den Einstellungen!');
         import('./app.js').then(app => app.openSettingsDialog());
         return;
     }
@@ -45,99 +49,47 @@ export function handleGoogleConnect() {
                 alert(`Fehler bei Authentifizierung: ${response.error}`);
                 return;
             }
-            onAuthSuccess(response.access_token, localStorage.getItem('gdrive_file_id'));
+            void onAuthSuccess(response.access_token);
         });
         tokenClient.requestAccessToken({ prompt: 'select_account' });
-    } catch (e) {
-        alert(`Google client error: ${e.message}`);
+    } catch (error) {
+        alert(`Google client error: ${error.message}`);
     }
 }
 
-// Gemeinsame Logik nach erfolgreicher Authentifizierung
-export async function onAuthSuccess(accessToken, existingFileId) {
+export async function onAuthSuccess(accessToken) {
     state.mode = 'google';
     state.accessToken = accessToken;
     sessionStorage.setItem('gdrive_access_token', accessToken);
 
     showScreen('main-screen');
-    updateSyncStatusIndicator('connected', 'Google Drive');
+    updateSyncStatusIndicator('local', 'Verbinde Konto...');
 
-    state.buildingCostsFileId = localStorage.getItem('gdrive_building_costs_file_id');
+    try {
+        const accountContext = await getDriveAccountContext();
+        bindDriveAccountContext(accountContext);
 
-    // 1. Suche oder erstelle die Transaktionsdatei
-    if (existingFileId) {
-        state.fileId = existingFileId;
-        import('./app.js').then(app => app.loadTransactionsFromGoogle());
-    } else {
         updateSyncStatusIndicator('local', 'Suche Datei...');
-        let foundId = await searchFile('transactions.json');
-        if (foundId) {
-            state.fileId = foundId;
-            localStorage.setItem('gdrive_file_id', foundId);
-            import('./app.js').then(app => app.loadTransactionsFromGoogle());
-        } else {
+        // Eine bereits kontogebunden gespeicherte bzw. ausdrücklich eingegebene
+        // Datei-ID hat Vorrang. Das ist unter drive.file wichtig, weil nicht jede
+        // freigegebene Datei über eine globale Namenssuche sichtbar ist.
+        const foundId = state.fileId || await searchFile('transactions.json');
+        rememberDriveFileId('transactions', foundId);
+
+        if (!state.fileId) {
             updateSyncStatusIndicator('local', 'Erstelle Datei...');
-            let newId = await createFileInGoogle('transactions.json', SEED_DATA);
-            if (newId) {
-                state.fileId = newId;
-                localStorage.setItem('gdrive_file_id', newId);
-                state.transactions = SEED_DATA;
-                updateSyncStatusIndicator('connected', 'Google Drive');
-                import('./app.js').then(app => app.updateDataViews());
-            } else {
-                updateSyncStatusIndicator('local', 'Fehler');
-                alert("Fehler beim Erstellen der Transaktionsdatei.");
-            }
+            const newId = await createFileInGoogle('transactions.json', []);
+            rememberDriveFileId('transactions', newId);
+            state.transactions = [];
         }
-    }
 
-    // 2. Suche Baukosten-Datei
-    let bcId = await searchFile('building_costs.json');
-    if (bcId) {
-        state.buildingCostsFileId = bcId;
-        localStorage.setItem('gdrive_building_costs_file_id', bcId);
-    }
-
-    // 4. Suche Fixkosten-Datei
-    let feId = await searchFile('fixed_expenses.json');
-    if (feId) {
-        state.fixedExpensesFileId = feId;
-        localStorage.setItem('gdrive_fixed_expenses_file_id', feId);
-    }
-
-    // 5. Suche Kredite-Datei
-    let loansId = await searchFile('loans.json');
-    if (loansId) {
-        state.loansFileId = loansId;
-        localStorage.setItem('gdrive_loans_file_id', loansId);
-    }
-
-    // 3. Suche und lade Szenarieneinstellungen (Kategorien & Partnernamen)
-    let settingsId = await searchFile('scenario_settings.json');
-    if (settingsId) {
-        state.scenarioSettingsFileId = settingsId;
-        localStorage.setItem('gdrive_scenario_settings_file_id', settingsId);
-        let settings = await downloadFileContent(settingsId);
-        if (settings) {
-            state.scenarioSettings = settings;
-            if (settings.BudgetCategories || settings.budgetCategories) {
-                state.budgetCategories = settings.BudgetCategories || settings.budgetCategories;
-                console.log('[Auth] Dynamische Kategorien geladen:', state.budgetCategories);
-            }
-            if (settings.Partner1Name || settings.partner1Name) {
-                state.partner1Name = settings.Partner1Name || settings.partner1Name;
-            }
-            if (settings.Partner2Name || settings.partner2Name) {
-                state.partner2Name = settings.Partner2Name || settings.partner2Name;
-            }
-            console.log('[Auth] Partnernamen geladen:', state.partner1Name, 'und', state.partner2Name);
-            
-            // Aktualisiere das Dropdown und die Views im HTML falls geladen
-            import('./ui.js').then(ui => {
-                ui.populateCategoryDropdown();
-                ui.updatePartnerDropdowns();
-                ui.updateDataViews();
-            });
-        }
+        const loaded = await loadTransactionsFromGoogle();
+        if (!loaded) return;
+        updateSyncStatusIndicator('connected', 'Google Drive');
+        consumeLaunchAction();
+    } catch (error) {
+        console.error('[Auth] Google-Drive-Verbindung fehlgeschlagen:', error);
+        updateSyncStatusIndicator('local', 'Fehler');
+        alert(`Google Drive konnte nicht verbunden werden: ${error.message}`);
     }
 }

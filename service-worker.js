@@ -1,9 +1,7 @@
-// Service Worker für Haushaltsbuch PWA
-// Cacht App-Shell für Offline-Nutzung
+// Service Worker für die Haushaltsbuch-PWA.
+const CACHE_PREFIX = 'haushaltsbuch-';
+const CACHE_NAME = `${CACHE_PREFIX}v23`;
 
-const CACHE_NAME = 'haushaltsbuch-v19'; // v19: mobiler Beleg-Upload über Drive-Upload-Session
-
-// Dateien die immer gecacht werden (App Shell)
 const APP_SHELL = [
     './',
     './index.html',
@@ -11,6 +9,7 @@ const APP_SHELL = [
     './app.js',
     './ui.js',
     './state.js',
+    './sync-utils.js',
     './api.js',
     './auth.js',
     './lib/pdf.min.js',
@@ -20,84 +19,51 @@ const APP_SHELL = [
     './icon-512.png'
 ];
 
-// ==================== INSTALL ====================
-// Beim ersten Laden: App Shell in Cache schreiben
 self.addEventListener('install', event => {
-    event.waitUntil(
-        caches.open(CACHE_NAME).then(cache => {
-            console.log('[SW] App Shell wird gecacht...');
-            return cache.addAll(APP_SHELL);
-        }).then(() => {
-            // Sofort aktiv werden ohne auf alten SW zu warten
-            return self.skipWaiting();
-        })
-    );
+    event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(APP_SHELL)));
+    // Do not call skipWaiting here: an old page and a new worker must never mix
+    // incompatible module versions during an in-flight edit or sync.
 });
 
-// ==================== ACTIVATE ====================
-// Alte Cache-Versionen bereinigen
 self.addEventListener('activate', event => {
     event.waitUntil(
-        caches.keys().then(cacheNames => {
-            return Promise.all(
-                cacheNames
-                    .filter(name => name !== CACHE_NAME)
-                    .map(name => {
-                        console.log('[SW] Alter Cache wird gelöscht:', name);
-                        return caches.delete(name);
-                    })
-            );
-        }).then(() => self.clients.claim())
+        caches.keys()
+            .then(names => Promise.all(
+                names
+                    .filter(name => name.startsWith(CACHE_PREFIX) && name !== CACHE_NAME)
+                    .map(name => caches.delete(name))
+            ))
+            .then(() => self.clients.claim())
     );
 });
 
-// ==================== FETCH ====================
-// Strategie: Cache First für App Shell, Network First für Google APIs
 self.addEventListener('fetch', event => {
+    if (event.request.method !== 'GET') return;
     const url = new URL(event.request.url);
 
-    // Google APIs & Accounts: immer Netzwerk (kein Cache – OAuth-Flows)
-    if (url.hostname.includes('google') || url.hostname.includes('googleapis')) {
+    const isGoogleApi = url.hostname === 'accounts.google.com'
+        || url.hostname.endsWith('.googleapis.com')
+        || url.hostname === 'googleapis.com';
+    if (isGoogleApi) {
         event.respondWith(fetch(event.request));
         return;
     }
 
-    // Google Fonts: Netzwerk mit Cache-Fallback
-    if (url.hostname.includes('fonts')) {
-        event.respondWith(
-            caches.match(event.request).then(cached => {
-                return cached || fetch(event.request).then(response => {
-                    const clone = response.clone();
-                    caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
-                    return response;
-                });
-            })
-        );
-        return;
-    }
+    if (url.origin !== self.location.origin) return;
 
-    // App Shell: Cache First – sofort aus Cache, im Hintergrund aktualisieren
-    event.respondWith(
-        caches.match(event.request).then(cached => {
-            const networkFetch = fetch(event.request).then(response => {
-                // Aktualisiertes File im Cache speichern
-                if (response.ok) {
-                    const clone = response.clone();
-                    caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
-                }
-                return response;
-            }).catch(() => cached); // Offline: weiter aus Cache bedienen
-
-            // Cached Version sofort zurückgeben, Netzwerk läuft im Hintergrund
-            return cached || networkFetch;
-        })
-    );
+    const refresh = fetch(event.request).then(response => {
+        if (response.ok) {
+            return caches.open(CACHE_NAME)
+                .then(cache => cache.put(event.request, response.clone()))
+                .then(() => response);
+        }
+        return response;
+    });
+    event.waitUntil(refresh.catch(() => undefined));
+    event.respondWith(caches.match(event.request).then(cached => cached || refresh));
 });
 
-// ==================== UPDATE NOTIFICATION ====================
-// Clients benachrichtigen wenn neuer SW verfügbar
+// Activation is only allowed after an explicit user-approved update flow.
 self.addEventListener('message', event => {
-    if (event.data === 'skipWaiting') {
-        self.skipWaiting();
-    }
+    if (event.data === 'skipWaiting') self.skipWaiting();
 });

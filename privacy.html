@@ -241,11 +241,16 @@
         </p>
         <ul>
             <li>Der Nutzer authentifiziert sich mit seinem eigenen Google-Konto via OAuth 2.0</li>
-            <li>Die Anwendung schreibt ausschließlich in eine einzige Datei: <strong>transactions.json</strong></li>
-            <li>Die Datei liegt im Google Drive des Nutzers – vollständig unter dessen Kontrolle</li>
+            <li>Die Anwendung speichert die fachlichen Daten in den Dateien
+                <strong>transactions.json</strong>, <strong>fixed_expenses.json</strong>,
+                <strong>loans.json</strong>, <strong>building_costs.json</strong>,
+                <strong>house_expenses.json</strong> und <strong>scenario_settings.json</strong>.</li>
+            <li>Optional angehängte Fotos und PDFs werden als separate Belegdateien gespeichert.</li>
+            <li>Alle Dateien liegen im Google Drive des Nutzers – vollständig unter dessen Kontrolle.</li>
             <li>Es werden keine Google-Nutzerdaten an Dritte weitergegeben</li>
             <li>Der angeforderte Berechtigungsumfang ist auf <code>drive.file</code> beschränkt –
-                die App kann nur Dateien lesen und schreiben, die sie selbst erstellt hat</li>
+                die App kann nur Dateien lesen und schreiben, die mit diesem OAuth-Client erstellt
+                oder ausdrücklich für ihn geöffnet wurden.</li>
         </ul>
         <div class="highlight-box">
             Die Verwendung der Google Drive API durch diese Anwendung unterliegt den
@@ -264,8 +269,9 @@
         <h2>4. Lokale Datenspeicherung (Browser)</h2>
         <p>Die Anwendung nutzt folgende Browser-Speichermechanismen:</p>
         <ul>
-            <li><strong>localStorage:</strong> Speichert die Google Client-ID, die Drive-File-ID sowie
-                ggf. Buchungsdaten im Offline-/Testmodus</li>
+            <li><strong>localStorage:</strong> Speichert die Google Client-ID, kontogebundene
+                Drive-Datei-IDs, lokal vorgemerkte Synchronisationsstände sowie ggf. Buchungsdaten
+                im Offline-/Testmodus</li>
             <li><strong>sessionStorage:</strong> Speichert das OAuth-Zugriffstoken temporär für die Dauer
                 der Browser-Sitzung</li>
             <li><strong>Service Worker Cache:</strong> Speichert App-Dateien (HTML, CSS, JS) für
@@ -286,8 +292,10 @@
             Analysedaten.
         </p>
         <p>
-            Einzige externe Verbindung: die Google APIs (accounts.google.com, googleapis.com)
-            zur Authentifizierung und Dateisynchronisierung – ausschließlich auf Wunsch des Nutzers.
+            Die Bibliothek Google Identity Services wird beim Start der Anwendung von
+            accounts.google.com geladen. Ein Zugriff auf Google-Drive-Daten erfolgt erst nach einer
+            aktiven Verbindung durch den Nutzer oder bei der Wiederherstellung einer zuvor
+            eingerichteten Verbindung. Die Dateisynchronisierung nutzt googleapis.com.
         </p>
     </section>
 
@@ -303,7 +311,8 @@
                 </a>
             </li>
             <li>Alle lokal gespeicherten Daten durch Löschen des Browser-Speichers zu entfernen</li>
-            <li>Die transactions.json direkt in Google Drive einzusehen, zu bearbeiten oder zu löschen</li>
+            <li>Die von der Anwendung angelegten Daten- und Belegdateien direkt in Google Drive
+                einzusehen oder zu löschen</li>
         </ul>
     </section>
 

@@ -1,7 +1,6 @@
 import {
     state,
     MONTH_NAMES,
-    SEED_DATA,
     escapeHtml,
     formatCurrency,
     generateUUID,
@@ -14,7 +13,9 @@ import {
     updateSingleLoanCalculations,
     loadHouseExpensesFromLocal,
     saveHouseExpensesToLocal,
-    getDefaultHouseExpenses,
+    DEFAULT_FIXED_EXPENSE_START_DATE,
+    CURRENT_FIXED_EXPENSE_START_DATE_SCHEMA_VERSION,
+    ensureFixedExpenseStartDates,
     v,
     setV,
     isTransactionGeneratedByFixedExpense
@@ -36,6 +37,13 @@ import {
     downloadBinaryFile,
     deleteDriveFile
 } from './api.js';
+
+import {
+    cloneJson,
+    makeScopedStorageKey,
+    mergeTransactions,
+    nextPendingRecord
+} from './sync-utils.js';
 
 import {
     updateDataViews,
@@ -65,7 +73,10 @@ export {
     saveLoansToGoogle,
     openHouseExpenseDialog,
     openBuildingCostDialog,
-    openInvoicePreviewFor
+    openInvoicePreviewFor,
+    bindDriveAccountContext,
+    rememberDriveFileId,
+    consumeLaunchAction
 };
 
 // ==================== PWA: SERVICE WORKER REGISTRIERUNG ====================
@@ -84,7 +95,7 @@ if ('serviceWorker' in navigator) {
     navigator.serviceWorker.addEventListener('controllerchange', () => {
         if (!hadControllerAtLoad || hasReloadedForUpdate) return; // Erstinstallation: kein Reload nötig
         hasReloadedForUpdate = true;
-        window.location.reload();
+        console.info('[PWA] Update ist beim nächsten App-Start aktiv.');
     });
 }
 
@@ -105,28 +116,118 @@ window.addEventListener('appinstalled', () => {
 const DEFAULT_CLIENT_ID = "283087066617-jcnplsfjoit6asktt3v56ihkeltbppas.apps.googleusercontent.com";
 const DEFAULT_API_KEY = "";
 
+const DRIVE_FILE_IDS = Object.freeze({
+    transactions: { stateKey: 'fileId', storageKey: 'gdrive_file_id' },
+    fixedExpenses: { stateKey: 'fixedExpensesFileId', storageKey: 'gdrive_fixed_expenses_file_id' },
+    loans: { stateKey: 'loansFileId', storageKey: 'gdrive_loans_file_id' },
+    buildingCosts: { stateKey: 'buildingCostsFileId', storageKey: 'gdrive_building_costs_file_id' },
+    houseExpenses: { stateKey: 'houseExpensesFileId', storageKey: 'gdrive_house_expenses_file_id' },
+    scenarioSettings: { stateKey: 'scenarioSettingsFileId', storageKey: 'gdrive_scenario_settings_file_id' }
+});
+
+function getScopedFileIdKey(kind, accountContext = state.accountContextId) {
+    const config = DRIVE_FILE_IDS[kind];
+    if (!config) throw new Error(`Unbekannter Drive-Dateityp: ${kind}`);
+    return makeScopedStorageKey(config.storageKey, accountContext);
+}
+
+function bindDriveAccountContext(accountContext) {
+    const nextContext = String(accountContext || '');
+    state.transactions = [];
+    state.fixedExpenses = [];
+    state.loans = [];
+    state.buildingCosts = [];
+    state.houseExpenses = [];
+    state.scenarioSettings = {};
+    state.budgetCategories = [];
+    state.partner1Name = 'Markus';
+    state.partner2Name = 'Maren';
+    state.accountContextId = nextContext;
+    if (!state.accountContextId) throw new Error('Google-Drive-Kontokontext fehlt.');
+    sessionStorage.setItem('gdrive_account_context', state.accountContextId);
+    localStorage.setItem('gdrive_last_account_context', state.accountContextId);
+
+    Object.entries(DRIVE_FILE_IDS).forEach(([kind, config]) => {
+        state[config.stateKey] = localStorage.getItem(getScopedFileIdKey(kind));
+    });
+}
+
+function rememberDriveFileId(kind, fileId) {
+    const config = DRIVE_FILE_IDS[kind];
+    if (!config || !state.accountContextId) return;
+    state[config.stateKey] = fileId || null;
+    const key = getScopedFileIdKey(kind);
+    if (fileId) localStorage.setItem(key, fileId);
+    else localStorage.removeItem(key);
+}
+
+function clearCurrentDriveContext() {
+    // Scoped IDs and pending snapshots intentionally remain recoverable for the
+    // same account; only the active session and unsafe legacy keys are detached.
+    Object.values(DRIVE_FILE_IDS).forEach(config => { state[config.stateKey] = null; });
+    state.accountContextId = null;
+    sessionStorage.removeItem('gdrive_account_context');
+    localStorage.removeItem('gdrive_last_account_context');
+    // Remove unsafe, unscoped keys left behind by older versions.
+    Object.values(DRIVE_FILE_IDS).forEach(config => localStorage.removeItem(config.storageKey));
+    localStorage.removeItem('pending_uploads');
+}
+
 // ==================== APP INITIALIZATION ====================
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
+    populateYearSelectors();
     initUI();
     loadConfig();
 
     // Bereits eine aktive Session in diesem Tab? -> direkt laden
     const savedToken = sessionStorage.getItem('gdrive_access_token');
-    const savedFileId = localStorage.getItem('gdrive_file_id');
-    if (savedToken && savedFileId) {
-        state.mode = 'google';
-        state.accessToken = savedToken;
-        state.fileId = savedFileId;
-        showScreen('main-screen');
-        updateSyncStatusIndicator('connected', 'Google Drive');
-        loadTransactionsFromGoogle();
-    } else if (savedFileId) {
+    const rememberedAccount = sessionStorage.getItem('gdrive_account_context') || localStorage.getItem('gdrive_last_account_context');
+    if (savedToken) {
+        await onAuthSuccess(savedToken);
+    } else if (rememberedAccount) {
         showScreen('login-screen');
         waitForGisAndAutoReconnect();
     } else {
         showScreen('login-screen');
     }
 });
+
+function populateYearSelectors() {
+    const currentYear = new Date().getFullYear();
+    const firstYear = currentYear - 10;
+    const lastYear = currentYear + 5;
+
+    [
+        { id: 'filter-year', includeAll: true },
+        { id: 'fixed-filter-year', includeAll: true },
+        { id: 'months-year', includeAll: false }
+    ].forEach(({ id, includeAll }) => {
+        const select = document.getElementById(id);
+        if (!select) return;
+
+        const previousValue = select.value;
+        select.replaceChildren();
+
+        if (includeAll) {
+            const allOption = document.createElement('option');
+            allOption.value = 'All';
+            allOption.textContent = 'Alle';
+            select.appendChild(allOption);
+        }
+
+        for (let year = firstYear; year <= lastYear; year++) {
+            const option = document.createElement('option');
+            option.value = String(year);
+            option.textContent = String(year);
+            select.appendChild(option);
+        }
+
+        const fallbackValue = includeAll ? 'All' : String(currentYear);
+        select.value = Array.from(select.options).some(option => option.value === previousValue)
+            ? previousValue
+            : fallbackValue;
+    });
+}
 
 function waitForGisAndAutoReconnect() {
     const maxWait = 5000;
@@ -180,9 +281,13 @@ function initUI() {
     // Refresh button
     const btnRefresh = document.getElementById('btn-refresh');
     if (btnRefresh) {
-        btnRefresh.addEventListener('click', () => {
+        btnRefresh.addEventListener('click', async () => {
             if (state.mode === 'google') {
-                loadTransactionsFromGoogle();
+                try {
+                    await loadTransactionsFromGoogle();
+                } catch (error) {
+                    alert(`Aktualisierung fehlgeschlagen: ${error.message}`);
+                }
             } else {
                 loadTransactionsFromLocal();
                 updateDataViews();
@@ -535,172 +640,178 @@ function handleLocalModeStart() {
         try { state.scenarioSettings = JSON.parse(savedSc); } catch (e) { state.scenarioSettings = {}; }
     }
     updateDataViews();
+    consumeLaunchAction();
+}
+
+let launchActionConsumed = false;
+function consumeLaunchAction() {
+    if (launchActionConsumed || window.location.hash !== '#new') return false;
+    const mainScreen = document.getElementById('main-screen');
+    if (!mainScreen || !mainScreen.classList.contains('active')) return false;
+    launchActionConsumed = true;
+    history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
+    openTransactionDialog();
+    return true;
 }
 
 // ==================== GOOGLE DRIVE OPERATIONS ====================
-function mergeTransactions(local, remote) {
-    const map = new Map();
 
-    function mergeIntoMap(t) {
-        if (!t) return;
-        const id = t.id || t.Id;
-        if (!id) return;
+function requireJsonArray(value, fileName) {
+    if (!Array.isArray(value)) throw new Error(`${fileName} muss ein JSON-Array enthalten.`);
+    return value;
+}
 
-        if (map.has(id)) {
-            const existing = map.get(id);
-            const tTime = new Date(t.updatedAt || t.UpdatedAt || 0).getTime();
-            const existingTime = new Date(existing.updatedAt || existing.UpdatedAt || 0).getTime();
-
-            let useIncoming = false;
-            if (tTime > existingTime) {
-                useIncoming = true;
-            } else if (tTime === existingTime) {
-                const incomingDel = t.isDeleted || t.IsDeleted || false;
-                const existingDel = existing.isDeleted || existing.IsDeleted || false;
-                if (incomingDel && !existingDel) {
-                    useIncoming = true;
-                }
-            }
-
-            if (useIncoming) {
-                map.set(id, t);
-            }
-        } else {
-            map.set(id, t);
-        }
+function requireJsonObject(value, fileName) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        throw new Error(`${fileName} muss ein JSON-Objekt enthalten.`);
     }
+    return value;
+}
 
-    if (Array.isArray(local)) local.forEach(t => mergeIntoMap(t));
-    if (Array.isArray(remote)) remote.forEach(t => mergeIntoMap(t));
+function applyScenarioSettings(settings) {
+    const categories = settings.BudgetCategories || settings.budgetCategories;
+    state.budgetCategories = Array.isArray(categories) ? categories : [];
 
-    return Array.from(map.values());
+    const normalizeName = (value, fallback) => {
+        if (typeof value !== 'string') return fallback;
+        const name = value.trim();
+        return name && name.length <= 80 && !/[\u0000-\u001f\u007f]/u.test(name) ? name : fallback;
+    };
+    state.partner1Name = normalizeName(settings.Partner1Name || settings.partner1Name, 'Markus');
+    state.partner2Name = normalizeName(settings.Partner2Name || settings.partner2Name, 'Maren');
 }
 
 async function loadTransactionsFromGoogle() {
-    if (!state.fileId) return;
+    if (!state.fileId) return false;
 
+    const syncContext = captureSyncContext();
+    if (!syncContext) return false;
+    const previousData = {
+        transactions: state.transactions,
+        fixedExpenses: state.fixedExpenses,
+        loans: state.loans,
+        buildingCosts: state.buildingCosts,
+        houseExpenses: state.houseExpenses,
+        scenarioSettings: state.scenarioSettings,
+        budgetCategories: state.budgetCategories,
+        partner1Name: state.partner1Name,
+        partner2Name: state.partner2Name
+    };
     updateSyncStatusIndicator('local', 'Lade...');
     try {
-        // Offline erfasste Änderungen zuerst aus dem lokalen Speicher holen,
-        // damit sie in den Merge einfließen bzw. nicht überschrieben werden.
         const pending = getPendingUploads();
-        if (pending.transactions) {
-            const localCopy = localStorage.getItem('local_transactions');
-            if (localCopy) {
-                try { state.transactions = JSON.parse(localCopy); } catch (e) { /* ignorieren */ }
-            }
-        }
+        const localTransactions = pending.transactions
+            ? requireJsonArray(cloneJson(pending.transactions.snapshot), 'Lokaler Transaktionsstand')
+            : state.transactions || [];
+        const remoteTransactions = requireJsonArray(await downloadFileContent(syncContext.fileContext), 'transactions.json');
+        assertCurrentSyncContext(syncContext);
 
-        let data = await downloadFileContent(state.fileId);
-        state.transactions = mergeTransactions(state.transactions || [], data || []);
+        const [fixedExpensesFileId, loansFileId, buildingCostsFileId, houseExpensesFileId, scenarioSettingsFileId] = await Promise.all([
+            searchFile('fixed_expenses.json'),
+            searchFile('loans.json'),
+            searchFile('building_costs.json'),
+            searchFile('house_expenses.json'),
+            searchFile('scenario_settings.json')
+        ]);
+        assertCurrentSyncContext(syncContext);
 
-        if (!state.fixedExpensesFileId) {
-            state.fixedExpensesFileId = await searchFile('fixed_expenses.json');
-            if (state.fixedExpensesFileId) localStorage.setItem('gdrive_fixed_expenses_file_id', state.fixedExpensesFileId);
-        }
-        if (pending.fixedExpenses) {
-            const localCopy = localStorage.getItem('local_fixed_expenses');
-            if (localCopy) { try { state.fixedExpenses = JSON.parse(localCopy); } catch (e) {} }
-        } else if (state.fixedExpensesFileId) {
-            state.fixedExpenses = await downloadFileContent(state.fixedExpensesFileId) || [];
-        }
+        const readArray = async (kind, fileId, fileName) => {
+            if (pending[kind]) return requireJsonArray(cloneJson(pending[kind].snapshot), `Lokaler Stand für ${fileName}`);
+            if (!fileId) return [];
+            return requireJsonArray(await downloadFileContent(fileId), fileName);
+        };
+        const readObject = async (kind, fileId, fileName) => {
+            if (pending[kind]) return requireJsonObject(cloneJson(pending[kind].snapshot), `Lokaler Stand für ${fileName}`);
+            if (!fileId) return {};
+            return requireJsonObject(await downloadFileContent(fileId), fileName);
+        };
 
-        if (!state.loansFileId) {
-            state.loansFileId = await searchFile('loans.json');
-            if (state.loansFileId) localStorage.setItem('gdrive_loans_file_id', state.loansFileId);
-        }
-        if (pending.loans) {
-            const localCopy = localStorage.getItem('local_loans');
-            if (localCopy) { try { state.loans = JSON.parse(localCopy); } catch (e) {} }
-            state.loans.forEach(loan => updateSingleLoanCalculations(loan));
-        } else if (state.loansFileId) {
-            state.loans = await downloadFileContent(state.loansFileId) || [];
-            state.loans.forEach(loan => updateSingleLoanCalculations(loan));
-        }
+        const [fixedExpenses, loans, buildingCosts, houseExpenses, scenarioSettings] = await Promise.all([
+            readArray('fixedExpenses', fixedExpensesFileId, 'fixed_expenses.json'),
+            readArray('loans', loansFileId, 'loans.json'),
+            readArray('buildingCosts', buildingCostsFileId, 'building_costs.json'),
+            readArray('houseExpenses', houseExpensesFileId, 'house_expenses.json'),
+            readObject('scenarioSettings', scenarioSettingsFileId, 'scenario_settings.json')
+        ]);
+        assertCurrentSyncContext(syncContext);
 
-        if (!state.buildingCostsFileId) {
-            state.buildingCostsFileId = await searchFile('building_costs.json');
-            if (state.buildingCostsFileId) localStorage.setItem('gdrive_building_costs_file_id', state.buildingCostsFileId);
-        }
-        if (pending.buildingCosts) {
-            const localCopy = localStorage.getItem('local_building_costs');
-            if (localCopy) { try { state.buildingCosts = JSON.parse(localCopy); } catch (e) {} }
-        } else if (state.buildingCostsFileId) {
-            state.buildingCosts = await downloadFileContent(state.buildingCostsFileId) || [];
-        }
+        const fixedExpensesNeedMigration = ensureFixedExpenseStartDates(fixedExpenses);
+        loans.forEach(loan => updateSingleLoanCalculations(loan));
 
-        if (!state.houseExpensesFileId) {
-            state.houseExpensesFileId = await searchFile('house_expenses.json');
-            if (state.houseExpensesFileId) localStorage.setItem('gdrive_house_expenses_file_id', state.houseExpensesFileId);
-        }
-        if (pending.houseExpenses) {
-            const localCopy = localStorage.getItem('local_house_expenses');
-            if (localCopy) { try { state.houseExpenses = JSON.parse(localCopy); } catch (e) {} }
-        } else if (state.houseExpensesFileId) {
-            state.houseExpenses = await downloadFileContent(state.houseExpensesFileId) || [];
-        }
-        if (!state.houseExpenses || state.houseExpenses.length === 0) {
-            // Wie am PC: leere Liste mit Standardpositionen vorbelegen
-            state.houseExpenses = getDefaultHouseExpenses();
-        }
+        state.transactions = mergeTransactions(localTransactions, remoteTransactions);
+        state.fixedExpenses = fixedExpenses;
+        state.loans = loans;
+        state.buildingCosts = buildingCosts;
+        state.houseExpenses = houseExpenses;
+        state.scenarioSettings = scenarioSettings;
+        rememberDriveFileId('fixedExpenses', fixedExpensesFileId);
+        rememberDriveFileId('loans', loansFileId);
+        rememberDriveFileId('buildingCosts', buildingCostsFileId);
+        rememberDriveFileId('houseExpenses', houseExpensesFileId);
+        rememberDriveFileId('scenarioSettings', scenarioSettingsFileId);
+        applyScenarioSettings(scenarioSettings);
 
-        if (!state.scenarioSettingsFileId) {
-            state.scenarioSettingsFileId = await searchFile('scenario_settings.json');
-            if (state.scenarioSettingsFileId) {
-                localStorage.setItem('gdrive_scenario_settings_file_id', state.scenarioSettingsFileId);
-            }
-        }
-        if (pending.scenarioSettings) {
-            const localCopy = localStorage.getItem('local_scenario_settings');
-            if (localCopy) { try { state.scenarioSettings = JSON.parse(localCopy); } catch (e) {} }
-        } else if (state.scenarioSettingsFileId) {
-            let settings = await downloadFileContent(state.scenarioSettingsFileId);
-            if (settings) {
-                state.scenarioSettings = settings;
-                if (settings.BudgetCategories || settings.budgetCategories) {
-                    state.budgetCategories = settings.BudgetCategories || settings.budgetCategories;
-                }
-                if (settings.Partner1Name || settings.partner1Name) {
-                    state.partner1Name = settings.Partner1Name || settings.partner1Name;
-                }
-                if (settings.Partner2Name || settings.partner2Name) {
-                    state.partner2Name = settings.Partner2Name || settings.partner2Name;
-                }
-            }
-        }
+        if (fixedExpensesNeedMigration) setPendingFlag('fixedExpenses', true);
 
         updateSyncStatusIndicator('connected', 'Google Drive');
         updateDataViews();
 
         // Offline vorgemerkte Änderungen jetzt hochladen
-        flushPendingUploads();
+        await flushPendingUploads();
+        consumeLaunchAction();
+        return true;
     } catch (err) {
+        if (!isCurrentSyncContext(syncContext)) {
+            console.info('Veralteter Drive-Ladevorgang wurde nach einem Kontowechsel verworfen.');
+            return false;
+        }
+        Object.assign(state, previousData);
         updateSyncStatusIndicator('local', 'Fehler');
         console.error("Drive Download Error:", err);
+        throw err;
     }
 }
 
-async function saveTransactionsToGoogle() {
-    if (!state.fileId) return;
-
-    updateSyncStatusIndicator('local', 'Synchronisiere...');
-    try {
-        let remoteTransactions = await downloadFileContent(state.fileId) || [];
-        const merged = mergeTransactions(state.transactions, remoteTransactions);
-        state.transactions = merged;
-
-        let success = await uploadFileContent(state.fileId, state.transactions);
-        if (success) {
-            setPendingFlag('transactions', false);
-            updateSyncStatusIndicator('connected', 'Google Drive');
-            updateDataViews();
-        } else {
-            throw new Error("Fehler beim Hochladen auf Google Drive.");
-        }
-    } catch (err) {
-        console.warn('Drive Sync fehlgeschlagen, Änderung wird lokal vorgemerkt:', err);
+async function saveTransactionsToGoogle({ stage = true } = {}) {
+    const record = getPendingRecord('transactions', stage);
+    if (!record) return true;
+    const syncContext = captureSyncContext();
+    if (!syncContext) {
         markOffline('transactions');
+        return false;
     }
+
+    return enqueueSave('transactions', syncContext, async () => {
+        if (!isCurrentSyncContext(syncContext)) return false;
+        updateSyncStatusIndicator('local', 'Synchronisiere...');
+        try {
+            const remoteTransactions = requireJsonArray(
+                await downloadFileContent(syncContext.fileContext),
+                'transactions.json'
+            );
+            assertCurrentSyncContext(syncContext);
+            const merged = mergeTransactions(record.snapshot, remoteTransactions);
+
+            const success = await uploadFileContent(syncContext.fileContext, merged);
+            assertCurrentSyncContext(syncContext);
+            if (!success) throw new Error('Fehler beim Hochladen auf Google Drive.');
+
+            const wasLatest = clearPendingIfCurrent('transactions', record.revision);
+            if (wasLatest) state.transactions = mergeTransactions(state.transactions, merged);
+            const hasPending = Object.keys(getPendingUploads()).length > 0;
+            updateSyncStatusIndicator(hasPending ? 'local' : 'connected', hasPending ? 'Ausstehend' : 'Google Drive');
+            updateDataViews();
+            return true;
+        } catch (err) {
+            if (!isCurrentSyncContext(syncContext)) {
+                console.info('Veralteter Transaktions-Upload wurde nach einem Kontowechsel verworfen.');
+                return false;
+            }
+            console.warn('Drive Sync fehlgeschlagen, Änderung wird lokal vorgemerkt:', err);
+            markOffline('transactions');
+            return false;
+        }
+    });
 }
 
 // ==================== SETTINGS HANDLERS ====================
@@ -716,11 +827,12 @@ function saveSettings() {
     localStorage.setItem('gdrive_api_key', apiKey);
 
     if (fileId && fileId !== state.fileId) {
-        state.fileId = fileId;
-        localStorage.setItem('gdrive_file_id', fileId);
-        if (state.mode === 'google') {
-            loadTransactionsFromGoogle();
+        if (state.mode !== 'google' || !state.accountContextId) {
+            alert('Bitte zuerst das gewünschte Google-Drive-Konto verbinden, bevor Sie eine Datei-ID zuordnen.');
+            return;
         }
+        rememberDriveFileId('transactions', fileId);
+        void loadTransactionsFromGoogle();
     }
 
     hideOverlay('settings-dialog');
@@ -728,10 +840,18 @@ function saveSettings() {
 }
 
 function handleDisconnect() {
+    clearCurrentDriveContext();
     state.accessToken = null;
-    state.fileId = null;
+    state.transactions = [];
+    state.fixedExpenses = [];
+    state.loans = [];
+    state.buildingCosts = [];
+    state.houseExpenses = [];
+    state.scenarioSettings = {};
+    state.budgetCategories = [];
+    state.partner1Name = 'Markus';
+    state.partner2Name = 'Maren';
     sessionStorage.removeItem('gdrive_access_token');
-    localStorage.removeItem('gdrive_file_id');
 
     hideOverlay('settings-dialog');
     showScreen('login-screen');
@@ -749,10 +869,14 @@ function openTransactionDialog(id = null) {
     document.getElementById('field-assigned').value = 'Gemeinsam';
     document.getElementById('field-notes').value = '';
 
-    const activeYear = state.selectedYear;
-    const activeMonth = String(state.selectedMonth).padStart(2, '0');
+    const overviewYear = parseInt(document.getElementById('months-year')?.value, 10);
+    const useOverviewContext = !id && state.activeTab === 'months';
+    const targetYear = useOverviewContext && Number.isInteger(overviewYear) ? overviewYear : state.selectedYear;
+    const targetMonth = useOverviewContext ? state.selectedOverviewMonth : state.selectedMonth;
+    const activeYear = targetYear;
+    const activeMonth = String(targetMonth).padStart(2, '0');
     const today = new Date();
-    const day = (today.getMonth() + 1 === state.selectedMonth && today.getFullYear() === state.selectedYear)
+    const day = (today.getMonth() + 1 === targetMonth && today.getFullYear() === targetYear)
         ? String(today.getDate()).padStart(2, '0')
         : '01';
     document.getElementById('field-date').value = `${activeYear}-${activeMonth}-${day}`;
@@ -784,7 +908,7 @@ function closeTransactionDialog() {
     state.editingTransactionId = null;
 }
 
-function handleTransactionSave(e) {
+async function handleTransactionSave(e) {
     e.preventDefault();
 
     const title = document.getElementById('field-title').value.trim();
@@ -854,7 +978,7 @@ function handleTransactionSave(e) {
     }
 
     if (state.mode === 'google') {
-        saveTransactionsToGoogle();
+        await saveTransactionsToGoogle();
     } else {
         saveTransactionsToLocal();
         updateDataViews();
@@ -875,7 +999,7 @@ function confirmDeleteTransaction(id) {
     }
 }
 
-function handleTransactionDeleteConfirmed() {
+async function handleTransactionDeleteConfirmed() {
     const id = state.deletingTransactionId;
     if (id) {
         const trans = state.transactions.find(t => (t.id || t.Id) === id);
@@ -887,7 +1011,7 @@ function handleTransactionDeleteConfirmed() {
         }
 
         if (state.mode === 'google') {
-            saveTransactionsToGoogle();
+            await saveTransactionsToGoogle();
         } else {
             saveTransactionsToLocal();
             updateDataViews();
@@ -940,7 +1064,7 @@ async function loadBuildingCostsFromGoogle() {
             listContainer.innerHTML = `<div class="info-box">Keine Baukosten-Datei 'building_costs.json' auf Ihrem Google Drive gefunden.<br><br>Bitte führen Sie in der PC-App eine <strong>Synchronisierung</strong> durch, um die Baukosten hochzuladen.</div>`;
             return;
         }
-        localStorage.setItem('gdrive_building_costs_file_id', state.buildingCostsFileId);
+        rememberDriveFileId('buildingCosts', state.buildingCostsFileId);
     }
 
     listContainer.innerHTML = `<div class="loading-state">Lade Baukosten...</div>`;
@@ -950,71 +1074,21 @@ async function loadBuildingCostsFromGoogle() {
         state.buildingCosts = data || [];
         renderBuildingCosts();
     } catch (err) {
-        listContainer.innerHTML = `<div class="info-box" style="color:var(--color-expense)">Fehler beim Laden der Baukosten:<br>${err.message}</div>`;
+        listContainer.innerHTML = `<div class="info-box" style="color:var(--color-expense)">Fehler beim Laden der Baukosten:<br>${escapeHtml(err.message)}</div>`;
     }
 }
 
 // ==================== FIXED EXPENSES GOOGLE SYNC ====================
-async function saveFixedExpensesToGoogle() {
-    if (!state.fixedExpensesFileId) {
-        state.fixedExpensesFileId = await searchFile('fixed_expenses.json');
-        if (!state.fixedExpensesFileId) {
-            state.fixedExpensesFileId = await createFileInGoogle('fixed_expenses.json', state.fixedExpenses);
-            if (state.fixedExpensesFileId) localStorage.setItem('gdrive_fixed_expenses_file_id', state.fixedExpensesFileId);
-        }
-    }
-
-    if (!state.fixedExpensesFileId) {
-        markOffline('fixedExpenses');
-        return;
-    }
-
-    updateSyncStatusIndicator('local', 'Synchronisiere...');
-    try {
-        let success = await uploadFileContent(state.fixedExpensesFileId, state.fixedExpenses);
-        if (success) {
-            setPendingFlag('fixedExpenses', false);
-            updateSyncStatusIndicator('connected', 'Google Drive');
-            updateDataViews();
-        } else {
-            throw new Error("Fehler beim Hochladen der Fixkosten.");
-        }
-    } catch (err) {
-        console.warn("Fixed Expenses Sync fehlgeschlagen, wird vorgemerkt:", err);
-        markOffline('fixedExpenses');
-    }
+async function saveFixedExpensesToGoogle(options = {}) {
+    return saveJsonStateToGoogle('fixedExpenses', 'fixed_expenses.json', options);
 }
 
 // ==================== LOANS GOOGLE SYNC ====================
-async function saveLoansToGoogle() {
-    if (!state.loansFileId) {
-        state.loansFileId = await searchFile('loans.json');
-        if (!state.loansFileId) {
-            state.loansFileId = await createFileInGoogle('loans.json', state.loans);
-            if (state.loansFileId) localStorage.setItem('gdrive_loans_file_id', state.loansFileId);
-        }
-    }
-
-    if (!state.loansFileId) {
-        markOffline('loans');
-        return;
-    }
-
-    updateSyncStatusIndicator('local', 'Synchronisiere...');
-    try {
-        let success = await uploadFileContent(state.loansFileId, state.loans);
-        if (success) {
-            setPendingFlag('loans', false);
-            updateSyncStatusIndicator('connected', 'Google Drive');
-            state.loans.forEach(loan => updateSingleLoanCalculations(loan));
-            updateDataViews();
-        } else {
-            throw new Error("Fehler beim Hochladen der Kredite.");
-        }
-    } catch (err) {
-        console.warn("Loans Sync fehlgeschlagen, wird vorgemerkt:", err);
-        markOffline('loans');
-    }
+async function saveLoansToGoogle(options = {}) {
+    return saveJsonStateToGoogle('loans', 'loans.json', {
+        ...options,
+        afterSuccess: () => state.loans.forEach(loan => updateSingleLoanCalculations(loan))
+    });
 }
 
 // ==================== FIXED EXPENSES CRUD HANDLERS ====================
@@ -1028,7 +1102,7 @@ function openFixedExpenseDialog(id = null) {
     document.getElementById('fixed-field-day').value = '1';
     document.getElementById('fixed-field-assigned').value = 'Gemeinsam';
     document.getElementById('fixed-field-notes').value = '';
-    document.getElementById('fixed-field-startdate').value = '2026-07-01';
+    document.getElementById('fixed-field-startdate').value = DEFAULT_FIXED_EXPENSE_START_DATE;
 
     if (id) {
         document.getElementById('fixed-dialog-title').textContent = "Fixkosten bearbeiten";
@@ -1042,7 +1116,7 @@ function openFixedExpenseDialog(id = null) {
             document.getElementById('fixed-field-assigned').value = fe.assignedTo || fe.AssignedTo || 'Gemeinsam';
             document.getElementById('fixed-field-notes').value = fe.notes || fe.Notes || '';
 
-            let startDateVal = '2026-07-01';
+            let startDateVal = DEFAULT_FIXED_EXPENSE_START_DATE;
             const rawStart = fe.startDate || fe.StartDate;
             if (rawStart) {
                 const d = new Date(rawStart);
@@ -1070,7 +1144,7 @@ function closeFixedExpenseDialog() {
     state.editingFixedExpenseId = null;
 }
 
-function handleFixedExpenseSave(e) {
+async function handleFixedExpenseSave(e) {
     e.preventDefault();
 
     const title = document.getElementById('fixed-field-title').value.trim();
@@ -1088,11 +1162,15 @@ function handleFixedExpenseSave(e) {
     }
 
     const isIncome = (type === 'income');
-    const startDate = startDateInput ? new Date(startDateInput).toISOString() : new Date("2026-07-01").toISOString();
+    const startDate = new Date(startDateInput || DEFAULT_FIXED_EXPENSE_START_DATE).toISOString();
+    let transactionsChanged = false;
 
     if (state.editingFixedExpenseId) {
         const fe = state.fixedExpenses.find(f => (f.id || f.Id) === state.editingFixedExpenseId);
         if (fe) {
+            const generatedTransactions = state.transactions.filter(transaction =>
+                !v(transaction, 'isDeleted') && isTransactionGeneratedByFixedExpense(transaction, fe));
+
             fe.title = title;
             fe.amount = amount;
             fe.isIncome = isIncome;
@@ -1101,6 +1179,7 @@ function handleFixedExpenseSave(e) {
             fe.assignedTo = assignedTo;
             fe.notes = notes;
             fe.startDate = startDate;
+            fe.startDateSchemaVersion = CURRENT_FIXED_EXPENSE_START_DATE_SCHEMA_VERSION;
 
             fe.Title = title;
             fe.Amount = amount;
@@ -1110,6 +1189,9 @@ function handleFixedExpenseSave(e) {
             fe.AssignedTo = assignedTo;
             fe.Notes = notes;
             fe.StartDate = startDate;
+            fe.StartDateSchemaVersion = CURRENT_FIXED_EXPENSE_START_DATE_SCHEMA_VERSION;
+
+            transactionsChanged = reconcileGeneratedFixedExpenseTransactions(fe, generatedTransactions);
         }
     } else {
         const newFe = {
@@ -1122,7 +1204,9 @@ function handleFixedExpenseSave(e) {
             assignedTo: assignedTo,
             notes: notes,
             startDate: startDate,
-            StartDate: startDate
+            StartDate: startDate,
+            startDateSchemaVersion: CURRENT_FIXED_EXPENSE_START_DATE_SCHEMA_VERSION,
+            StartDateSchemaVersion: CURRENT_FIXED_EXPENSE_START_DATE_SCHEMA_VERSION
         };
         newFe.Id = newFe.id;
         newFe.Title = newFe.title;
@@ -1137,13 +1221,51 @@ function handleFixedExpenseSave(e) {
     }
 
     if (state.mode === 'google') {
-        saveFixedExpensesToGoogle();
+        await saveFixedExpensesToGoogle();
+        if (transactionsChanged) await saveTransactionsToGoogle();
     } else {
         saveFixedExpensesToLocal();
+        if (transactionsChanged) saveTransactionsToLocal();
         updateDataViews();
     }
 
     closeFixedExpenseDialog();
+}
+
+function reconcileGeneratedFixedExpenseTransactions(fixedExpense, transactions) {
+    if (!transactions.length) return false;
+
+    const start = new Date(v(fixedExpense, 'startDate'));
+    const startMonth = start.getUTCFullYear() * 12 + start.getUTCMonth();
+    const updatedAt = new Date().toISOString();
+
+    transactions.forEach(transaction => {
+        const transactionDate = new Date(v(transaction, 'date'));
+        const transactionMonth = transactionDate.getUTCFullYear() * 12 + transactionDate.getUTCMonth();
+
+        if (transactionMonth < startMonth) {
+            setV(transaction, 'isDeleted', true);
+            setV(transaction, 'updatedAt', updatedAt);
+            return;
+        }
+
+        const year = transactionDate.getUTCFullYear();
+        const month = transactionDate.getUTCMonth();
+        const daysInMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+        const targetDay = Math.max(1, Math.min(parseInt(v(fixedExpense, 'dayOfMonth')) || 1, daysInMonth));
+
+        setV(transaction, 'title', `${v(fixedExpense, 'title')} (Fixkosten)`);
+        setV(transaction, 'amount', v(fixedExpense, 'amount'));
+        setV(transaction, 'isIncome', !!v(fixedExpense, 'isIncome'));
+        setV(transaction, 'category', v(fixedExpense, 'category'));
+        setV(transaction, 'date', new Date(Date.UTC(year, month, targetDay)).toISOString());
+        setV(transaction, 'notes', `Automatisch gebucht aus Fixkosten. ${v(fixedExpense, 'notes') || ''}`);
+        setV(transaction, 'assignedTo', v(fixedExpense, 'assignedTo') || 'Gemeinsam');
+        setV(transaction, 'fixedExpenseId', v(fixedExpense, 'id'));
+        setV(transaction, 'updatedAt', updatedAt);
+    });
+
+    return true;
 }
 
 function confirmDeleteFixedExpense(id) {
@@ -1157,7 +1279,7 @@ function confirmDeleteFixedExpense(id) {
     }
 }
 
-function handleFixedExpenseDeleteConfirmed() {
+async function handleFixedExpenseDeleteConfirmed() {
     const id = state.deletingFixedExpenseId;
     if (id) {
         const idx = state.fixedExpenses.findIndex(f => (f.id || f.Id) === id);
@@ -1179,8 +1301,8 @@ function handleFixedExpenseDeleteConfirmed() {
         }
 
         if (state.mode === 'google') {
-            saveFixedExpensesToGoogle();
-            if (transactionsChanged) saveTransactionsToGoogle();
+            await saveFixedExpensesToGoogle();
+            if (transactionsChanged) await saveTransactionsToGoogle();
         } else {
             saveFixedExpensesToLocal();
             if (transactionsChanged) saveTransactionsToLocal();
@@ -1192,7 +1314,7 @@ function handleFixedExpenseDeleteConfirmed() {
 }
 
 // ==================== SONDERTILGUNG HANDLER ====================
-function handleAddSondertilgung() {
+async function handleAddSondertilgung() {
     const yrInput = document.getElementById('add-st-year');
     const amtInput = document.getElementById('add-st-amount');
     if (!yrInput || !amtInput) return;
@@ -1227,7 +1349,7 @@ function handleAddSondertilgung() {
     amtInput.value = '';
 
     if (state.mode === 'google') {
-        saveLoansToGoogle();
+        await saveLoansToGoogle();
     } else {
         saveLoansToLocal();
         renderLoans();
@@ -1235,38 +1357,13 @@ function handleAddSondertilgung() {
 }
 
 // ==================== HAUSKOSTEN (CRUD + SYNC) ====================
-async function saveHouseExpensesToGoogle() {
-    if (!state.houseExpensesFileId) {
-        state.houseExpensesFileId = await searchFile('house_expenses.json');
-        if (!state.houseExpensesFileId) {
-            state.houseExpensesFileId = await createFileInGoogle('house_expenses.json', state.houseExpenses);
-            if (state.houseExpensesFileId) localStorage.setItem('gdrive_house_expenses_file_id', state.houseExpensesFileId);
-        }
-    }
-    if (!state.houseExpensesFileId) {
-        markOffline('houseExpenses');
-        return;
-    }
-
-    updateSyncStatusIndicator('local', 'Synchronisiere...');
-    try {
-        const success = await uploadFileContent(state.houseExpensesFileId, state.houseExpenses);
-        if (success) {
-            setPendingFlag('houseExpenses', false);
-            updateSyncStatusIndicator('connected', 'Google Drive');
-            updateDataViews();
-        } else {
-            throw new Error('Fehler beim Hochladen der Hauskosten.');
-        }
-    } catch (err) {
-        console.warn('House Expenses Sync fehlgeschlagen, wird vorgemerkt:', err);
-        markOffline('houseExpenses');
-    }
+async function saveHouseExpensesToGoogle(options = {}) {
+    return saveJsonStateToGoogle('houseExpenses', 'house_expenses.json', options);
 }
 
-function persistHouseExpenses() {
+async function persistHouseExpenses() {
     if (state.mode === 'google') {
-        saveHouseExpensesToGoogle();
+        await saveHouseExpensesToGoogle();
     } else {
         saveHouseExpensesToLocal();
         updateDataViews();
@@ -1299,7 +1396,7 @@ function openHouseExpenseDialog(id = null) {
     showOverlay('hauskosten-dialog');
 }
 
-function handleHouseExpenseSave(e) {
+async function handleHouseExpenseSave(e) {
     e.preventDefault();
 
     const name = document.getElementById('hk-field-name').value.trim();
@@ -1324,18 +1421,18 @@ function handleHouseExpenseSave(e) {
         state.houseExpenses.push({ id: generateUUID(), name, amount, category, notes });
     }
 
-    persistHouseExpenses();
+    await persistHouseExpenses();
     hideOverlay('hauskosten-dialog');
     state.editingHouseExpenseId = null;
 }
 
-function handleHouseExpenseDelete() {
+async function handleHouseExpenseDelete() {
     const id = state.editingHouseExpenseId;
     if (!id) return;
     const idx = (state.houseExpenses || []).findIndex(h => (v(h, 'id')) === id);
     if (idx !== -1 && window.confirm('Diese Hauskosten-Position wirklich löschen?')) {
         state.houseExpenses.splice(idx, 1);
-        persistHouseExpenses();
+        await persistHouseExpenses();
         hideOverlay('hauskosten-dialog');
         state.editingHouseExpenseId = null;
     }
@@ -1344,38 +1441,13 @@ function handleHouseExpenseDelete() {
 // ==================== BAUKOSTEN (CRUD + SYNC) ====================
 const DEFAULT_BK_CATEGORIES = ['Planung', 'Grundstück', 'Rohbau', 'Ausbaustufe 1', 'Ausbaustufe 2', 'Ausbaustufe 3', 'Ausbaustufe 4', 'Einrichtung', 'Gartengestaltung'];
 
-async function saveBuildingCostsToGoogle() {
-    if (!state.buildingCostsFileId) {
-        state.buildingCostsFileId = await searchFile('building_costs.json');
-        if (!state.buildingCostsFileId) {
-            state.buildingCostsFileId = await createFileInGoogle('building_costs.json', state.buildingCosts);
-            if (state.buildingCostsFileId) localStorage.setItem('gdrive_building_costs_file_id', state.buildingCostsFileId);
-        }
-    }
-    if (!state.buildingCostsFileId) {
-        markOffline('buildingCosts');
-        return;
-    }
-
-    updateSyncStatusIndicator('local', 'Synchronisiere...');
-    try {
-        const success = await uploadFileContent(state.buildingCostsFileId, state.buildingCosts);
-        if (success) {
-            setPendingFlag('buildingCosts', false);
-            updateSyncStatusIndicator('connected', 'Google Drive');
-            updateDataViews();
-        } else {
-            throw new Error('Fehler beim Hochladen der Baukosten.');
-        }
-    } catch (err) {
-        console.warn('Building Costs Sync fehlgeschlagen, wird vorgemerkt:', err);
-        markOffline('buildingCosts');
-    }
+async function saveBuildingCostsToGoogle(options = {}) {
+    return saveJsonStateToGoogle('buildingCosts', 'building_costs.json', options);
 }
 
-function persistBuildingCosts() {
+async function persistBuildingCosts() {
     if (state.mode === 'google') {
-        saveBuildingCostsToGoogle();
+        await saveBuildingCostsToGoogle();
     } else {
         localStorage.setItem('local_building_costs', JSON.stringify(state.buildingCosts));
         updateDataViews();
@@ -1390,7 +1462,8 @@ function populateBkCategoryDropdown() {
         const c = v(b, 'category');
         if (c && !cats.includes(c)) cats.push(c);
     });
-    select.innerHTML = cats.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
+    select.replaceChildren();
+    cats.forEach(category => select.add(new Option(String(category), String(category))));
 }
 
 function updateBkPaidFieldsVisibility() {
@@ -1457,7 +1530,7 @@ function openBuildingCostDialog(id = null) {
     showOverlay('baukosten-dialog');
 }
 
-function handleBuildingCostSave(e) {
+async function handleBuildingCostSave(e) {
     e.preventDefault();
 
     const name = document.getElementById('bk-field-name').value.trim();
@@ -1496,18 +1569,18 @@ function handleBuildingCostSave(e) {
         });
     }
 
-    persistBuildingCosts();
+    await persistBuildingCosts();
     hideOverlay('baukosten-dialog');
     state.editingBuildingCostId = null;
 }
 
-function handleBuildingCostDelete() {
+async function handleBuildingCostDelete() {
     const id = state.editingBuildingCostId;
     if (!id) return;
     const idx = (state.buildingCosts || []).findIndex(b => (v(b, 'id')) === id);
     if (idx !== -1 && window.confirm('Diesen Baukosten-Eintrag wirklich löschen?')) {
         state.buildingCosts.splice(idx, 1);
-        persistBuildingCosts();
+        await persistBuildingCosts();
         hideOverlay('baukosten-dialog');
         state.editingBuildingCostId = null;
     }
@@ -1515,6 +1588,10 @@ function handleBuildingCostDelete() {
 
 // ==================== BELEG-FOTOS (BAUKOSTEN) ====================
 // Foto vor dem Upload verkleinern (max. 1600px, JPEG) — spart Drive-Platz und Upload-Zeit.
+const MAX_INVOICE_BYTES = 25 * 1024 * 1024;
+const MAX_PDF_CANVAS_PIXELS = 16_000_000;
+const MAX_PDF_PREVIEW_PAGES = 10;
+
 async function compressImage(file, maxDim = 1600, quality = 0.8) {
     try {
         const bitmap = await createImageBitmap(file);
@@ -1543,7 +1620,7 @@ async function persistInvoiceList() {
     if (!invoiceTarget) return;
     if (invoiceTarget.list === 'buildingCosts') {
         if (state.mode === 'google') await saveBuildingCostsToGoogle();
-        else persistBuildingCosts();
+        else await persistBuildingCosts();
     } else if (invoiceTarget.list === 'transactions') {
         if (state.mode === 'google') await saveTransactionsToGoogle();
         else { saveTransactionsToLocal(); updateDataViews(); }
@@ -1598,6 +1675,11 @@ async function handleInvoiceFileSelected(e) {
     const item = resolveInvoiceItem();
     if (!item) return;
 
+    if (file.size === 0 || file.size > MAX_INVOICE_BYTES) {
+        alert('Belege müssen größer als 0 Byte und höchstens 25 MB groß sein.');
+        return;
+    }
+
     const prefix = invoiceTarget.prefix;
     const statusEl = document.getElementById(`${prefix}-invoice-status`);
     if (statusEl) statusEl.textContent = 'Beleg wird hochgeladen...';
@@ -1618,16 +1700,22 @@ async function handleInvoiceFileSelected(e) {
         const driveId = await uploadBinaryFile(fileName, blob, mime);
         if (!driveId) throw new Error('Upload fehlgeschlagen');
 
-        if (oldId) {
-            deleteDriveFile(oldId); // Aufräumen, Fehler unkritisch
-        }
-
         setV(item, 'invoiceDriveFileId', driveId);
         setV(item, 'invoiceFileName', fileName);
         // Sonst kann ein späterer Merge die neue Beleg-Verknüpfung mit dem
         // älteren Stand ohne Anhang überschreiben.
         setV(item, 'updatedAt', new Date().toISOString());
         await persistInvoiceList();
+
+        // Erst nach erfolgreicher Verknüpfung löschen. Ein Fehler beim Aufräumen
+        // darf den bereits sicher gespeicherten neuen Beleg nicht zurückrollen.
+        if (oldId) {
+            try {
+                await deleteDriveFile(oldId);
+            } catch (cleanupError) {
+                console.warn('Alter Beleg konnte nicht gelöscht werden:', cleanupError);
+            }
+        }
 
         if (statusEl) statusEl.textContent = fileName;
         const btnView = document.getElementById(`btn-${prefix}-view-invoice`);
@@ -1645,63 +1733,83 @@ let currentInvoiceObjectUrl = null;
 // rendern wir die Seiten selbst auf Canvas-Elemente.
 let pdfJsLoadPromise = null;
 function loadPdfJs() {
-    if (window.pdfjsLib) return Promise.resolve();
     if (!pdfJsLoadPromise) {
-        pdfJsLoadPromise = new Promise((resolve, reject) => {
-            const script = document.createElement('script');
-            script.src = './lib/pdf.min.js';
-            script.onload = () => {
-                window.pdfjsLib.GlobalWorkerOptions.workerSrc = './lib/pdf.worker.min.js';
-                resolve();
-            };
-            script.onerror = () => {
+        pdfJsLoadPromise = import('./lib/pdf.min.js')
+            .then(pdfjsLib => {
+                pdfjsLib.GlobalWorkerOptions.workerSrc = './lib/pdf.worker.min.js';
+                return pdfjsLib;
+            })
+            .catch(error => {
                 pdfJsLoadPromise = null;
-                reject(new Error('PDF.js konnte nicht geladen werden.'));
-            };
-            document.head.appendChild(script);
-        });
+                throw new Error(`PDF.js konnte nicht geladen werden: ${error.message}`);
+            });
     }
     return pdfJsLoadPromise;
 }
 
 async function renderPdfPreview(blob) {
-    await loadPdfJs();
+    if (!(blob instanceof Blob) || blob.size === 0 || blob.size > MAX_INVOICE_BYTES) {
+        throw new Error('PDF ist leer oder größer als 25 MB.');
+    }
+
+    const pdfjsLib = await loadPdfJs();
     const container = document.getElementById('invoice-preview-pdf-pages');
     if (!container) return;
     container.innerHTML = '';
     container.style.display = 'block';
 
-    const data = await blob.arrayBuffer();
-    const pdf = await window.pdfjsLib.getDocument({ data }).promise;
-    const pageCount = Math.min(pdf.numPages, 10); // Belege sind kurz; 10 Seiten reichen
-
-    const scrollBox = document.getElementById('invoice-preview-scroll');
-    const targetWidth = (scrollBox ? scrollBox.clientWidth : 360) - 8;
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-
-    for (let p = 1; p <= pageCount; p++) {
-        const page = await pdf.getPage(p);
-        const baseViewport = page.getViewport({ scale: 1 });
-        const scale = (targetWidth / baseViewport.width) * dpr;
-        const viewport = page.getViewport({ scale });
-
-        const canvas = document.createElement('canvas');
-        canvas.width = viewport.width;
-        canvas.height = viewport.height;
-        canvas.style.width = '100%';
-        canvas.style.borderRadius = '8px';
-        canvas.style.marginBottom = '8px';
-        canvas.style.background = '#fff';
-
-        await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
-        container.appendChild(canvas);
+    const data = new Uint8Array(await blob.arrayBuffer());
+    if (data.length < 5 || String.fromCharCode(...data.slice(0, 5)) !== '%PDF-') {
+        throw new Error('Die Datei besitzt keinen gültigen PDF-Header.');
     }
+    const loadingTask = pdfjsLib.getDocument({
+        data,
+        isEvalSupported: false,
+        stopAtErrors: true,
+        maxImageSize: MAX_PDF_CANVAS_PIXELS
+    });
+    const pdf = await loadingTask.promise;
+    try {
+        const pageCount = Math.min(pdf.numPages, MAX_PDF_PREVIEW_PAGES);
+        const scrollBox = document.getElementById('invoice-preview-scroll');
+        const targetWidth = Math.max(240, (scrollBox ? scrollBox.clientWidth : 360) - 8);
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
 
-    if (pdf.numPages > pageCount) {
-        const note = document.createElement('div');
-        note.style.cssText = 'font-size:11px; color:var(--text-tertiary); padding:4px;';
-        note.textContent = `... ${pdf.numPages - pageCount} weitere Seiten`;
-        container.appendChild(note);
+        for (let p = 1; p <= pageCount; p++) {
+            const page = await pdf.getPage(p);
+            const baseViewport = page.getViewport({ scale: 1 });
+            if (!Number.isFinite(baseViewport.width) || !Number.isFinite(baseViewport.height) || baseViewport.width <= 0 || baseViewport.height <= 0) {
+                throw new Error(`PDF-Seite ${p} hat ungültige Abmessungen.`);
+            }
+            let scale = (targetWidth / baseViewport.width) * dpr;
+            let viewport = page.getViewport({ scale });
+            if (viewport.width * viewport.height > MAX_PDF_CANVAS_PIXELS) {
+                scale *= Math.sqrt(MAX_PDF_CANVAS_PIXELS / (viewport.width * viewport.height));
+                viewport = page.getViewport({ scale });
+            }
+
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.max(1, Math.floor(viewport.width));
+            canvas.height = Math.max(1, Math.floor(viewport.height));
+            canvas.style.width = '100%';
+            canvas.style.borderRadius = '8px';
+            canvas.style.marginBottom = '8px';
+            canvas.style.background = '#fff';
+
+            const context = canvas.getContext('2d');
+            if (!context) throw new Error('Canvas-Kontext für die PDF-Vorschau ist nicht verfügbar.');
+            await page.render({ canvasContext: context, viewport }).promise;
+            container.appendChild(canvas);
+        }
+
+        if (pdf.numPages > pageCount) {
+            const note = document.createElement('div');
+            note.style.cssText = 'font-size:11px; color:var(--text-tertiary); padding:4px;';
+            note.textContent = `... ${pdf.numPages - pageCount} weitere Seiten`;
+            container.appendChild(note);
+        }
+    } finally {
+        await loadingTask.destroy();
     }
 }
 
@@ -1742,6 +1850,7 @@ async function openInvoicePreview() {
     try {
         const blob = await downloadBinaryFile(driveFileId);
         if (!blob || blob.size === 0) throw new Error('Download fehlgeschlagen oder Datei ist leer');
+        if (blob.size > MAX_INVOICE_BYTES) throw new Error('Der Beleg ist größer als 25 MB.');
 
         if (await isPdfInvoice(blob, fileName)) {
             await renderPdfPreview(blob);
@@ -1792,34 +1901,162 @@ async function handleInvoiceRemove() {
 // ==================== OFFLINE-WARTESCHLANGE ====================
 // Schlägt ein Drive-Upload fehl (z. B. auf der Baustelle ohne Netz), werden die
 // Daten lokal gesichert und beim nächsten Online-Gehen bzw. App-Start nachgeladen.
-const PENDING_KEY = 'pending_uploads';
+const PENDING_KEY = 'pending_uploads_v2';
+const saveChains = new Map();
 
-function getPendingUploads() {
-    try { return JSON.parse(localStorage.getItem(PENDING_KEY)) || {}; } catch (e) { return {}; }
+function captureSyncContext() {
+    if (state.mode !== 'google' || !state.accessToken || !state.accountContextId || !state.fileId) return null;
+    return Object.freeze({
+        accountContext: String(state.accountContextId),
+        fileContext: String(state.fileId)
+    });
 }
 
-function setPendingFlag(kind, on) {
-    const pending = getPendingUploads();
-    if (on) pending[kind] = true; else delete pending[kind];
-    localStorage.setItem(PENDING_KEY, JSON.stringify(pending));
+function isCurrentSyncContext(context) {
+    return !!context
+        && state.mode === 'google'
+        && String(state.accountContextId || '') === context.accountContext
+        && String(state.fileId || '') === context.fileContext;
 }
 
-function persistLocalCopy(kind) {
-    switch (kind) {
-        case 'transactions': saveTransactionsToLocal(); break;
-        case 'fixedExpenses': saveFixedExpensesToLocal(); break;
-        case 'loans': saveLoansToLocal(); break;
-        case 'houseExpenses': saveHouseExpensesToLocal(); break;
-        case 'buildingCosts': localStorage.setItem('local_building_costs', JSON.stringify(state.buildingCosts)); break;
-        case 'scenarioSettings': localStorage.setItem('local_scenario_settings', JSON.stringify(state.scenarioSettings)); break;
+function assertCurrentSyncContext(context) {
+    if (!isCurrentSyncContext(context)) {
+        throw new Error('Der Google-Drive-Kontext hat sich während der Synchronisierung geändert.');
     }
 }
 
+function getPendingStorageKey(accountContext = state.accountContextId, fileContext = state.fileId) {
+    if (!accountContext) return null;
+    return makeScopedStorageKey(PENDING_KEY, accountContext, fileContext || 'unbound');
+}
+
+function getPendingCopyKey(kind, accountContext = state.accountContextId, fileContext = state.fileId) {
+    if (!accountContext) return null;
+    return makeScopedStorageKey(`pending_copy_v2_${kind}`, accountContext, fileContext || 'unbound');
+}
+
+function getPendingUploads() {
+    const key = getPendingStorageKey();
+    if (!key) return {};
+    try {
+        const value = JSON.parse(localStorage.getItem(key));
+        return value && typeof value === 'object' ? value : {};
+    } catch (_) {
+        return {};
+    }
+}
+
+function writePendingUploads(pending) {
+    const key = getPendingStorageKey();
+    if (!key) throw new Error('Ausstehende Änderungen können keinem Drive-Konto zugeordnet werden.');
+    if (Object.keys(pending).length === 0) localStorage.removeItem(key);
+    else localStorage.setItem(key, JSON.stringify(pending));
+}
+
+function setPendingFlag(kind, on, revision = null) {
+    const pending = getPendingUploads();
+    if (on) {
+        const snapshot = cloneJson(state[kind] === undefined ? null : state[kind]);
+        pending[kind] = nextPendingRecord(pending[kind], snapshot);
+        const copyKey = getPendingCopyKey(kind);
+        if (copyKey) localStorage.setItem(copyKey, JSON.stringify(snapshot));
+    } else if (revision === null || Number(pending[kind]?.revision) === Number(revision)) {
+        delete pending[kind];
+        const copyKey = getPendingCopyKey(kind);
+        if (copyKey) localStorage.removeItem(copyKey);
+    }
+    writePendingUploads(pending);
+    return pending[kind] || null;
+}
+
+function persistLocalCopy(kind) {
+    const key = getPendingCopyKey(kind);
+    if (key) localStorage.setItem(key, JSON.stringify(state[kind] === undefined ? null : state[kind]));
+}
+
 function markOffline(kind) {
-    persistLocalCopy(kind);
-    setPendingFlag(kind, true);
+    if (state.accountContextId) {
+        persistLocalCopy(kind);
+        if (!getPendingUploads()[kind]) setPendingFlag(kind, true);
+    }
     updateSyncStatusIndicator('local', 'Offline – ausstehend');
     updateDataViews();
+}
+
+function getPendingRecord(kind, stage = true) {
+    return stage ? setPendingFlag(kind, true) : getPendingUploads()[kind] || null;
+}
+
+function clearPendingIfCurrent(kind, revision) {
+    const current = getPendingUploads()[kind];
+    if (Number(current?.revision) !== Number(revision)) return false;
+    setPendingFlag(kind, false, revision);
+    return true;
+}
+
+function enqueueSave(kind, context, task) {
+    const chainKey = `${context.accountContext}::${context.fileContext}::${kind}`;
+    const previous = saveChains.get(chainKey) || Promise.resolve();
+    const current = previous.catch(() => undefined).then(task);
+    saveChains.set(chainKey, current);
+    return current.finally(() => {
+        if (saveChains.get(chainKey) === current) saveChains.delete(chainKey);
+    });
+}
+
+async function ensureDriveDataFile(kind, fileName, initialContent, syncContext) {
+    assertCurrentSyncContext(syncContext);
+    const config = DRIVE_FILE_IDS[kind];
+    let fileId = config ? state[config.stateKey] : null;
+    if (!fileId) {
+        fileId = await searchFile(fileName);
+        assertCurrentSyncContext(syncContext);
+        if (fileId) rememberDriveFileId(kind, fileId);
+    }
+    if (fileId) return { fileId, created: false };
+
+    assertCurrentSyncContext(syncContext);
+    fileId = await createFileInGoogle(fileName, initialContent);
+    assertCurrentSyncContext(syncContext);
+    rememberDriveFileId(kind, fileId);
+    return { fileId, created: true };
+}
+
+async function saveJsonStateToGoogle(kind, fileName, { stage = true, afterSuccess = null } = {}) {
+    const record = getPendingRecord(kind, stage);
+    if (!record) return true;
+    const syncContext = captureSyncContext();
+    if (!syncContext) {
+        markOffline(kind);
+        return false;
+    }
+
+    return enqueueSave(kind, syncContext, async () => {
+        if (!isCurrentSyncContext(syncContext)) return false;
+        updateSyncStatusIndicator('local', 'Synchronisiere...');
+        try {
+            const snapshot = cloneJson(record.snapshot);
+            const { fileId, created } = await ensureDriveDataFile(kind, fileName, snapshot, syncContext);
+            if (!created) {
+                assertCurrentSyncContext(syncContext);
+                await uploadFileContent(fileId, snapshot);
+            }
+            assertCurrentSyncContext(syncContext);
+            const wasLatest = clearPendingIfCurrent(kind, record.revision);
+            if (wasLatest && afterSuccess) afterSuccess(snapshot);
+            updateSyncStatusIndicator(Object.keys(getPendingUploads()).length ? 'local' : 'connected', Object.keys(getPendingUploads()).length ? 'Ausstehend' : 'Google Drive');
+            updateDataViews();
+            return true;
+        } catch (error) {
+            if (!isCurrentSyncContext(syncContext)) {
+                console.info(`Veralteter ${kind}-Upload wurde nach einem Kontowechsel verworfen.`);
+                return false;
+            }
+            console.warn(`${kind} Sync fehlgeschlagen, wird vorgemerkt:`, error);
+            markOffline(kind);
+            return false;
+        }
+    });
 }
 
 export async function flushPendingUploads() {
@@ -1831,12 +2068,12 @@ export async function flushPendingUploads() {
     updateSyncStatusIndicator('local', 'Hole Sync nach...');
     for (const kind of kinds) {
         try {
-            if (kind === 'transactions') await saveTransactionsToGoogle();
-            else if (kind === 'fixedExpenses') await saveFixedExpensesToGoogle();
-            else if (kind === 'loans') await saveLoansToGoogle();
-            else if (kind === 'houseExpenses') await saveHouseExpensesToGoogle();
-            else if (kind === 'buildingCosts') await saveBuildingCostsToGoogle();
-            else if (kind === 'scenarioSettings') await saveScenarioSettingsToGoogle();
+            if (kind === 'transactions') await saveTransactionsToGoogle({ stage: false });
+            else if (kind === 'fixedExpenses') await saveFixedExpensesToGoogle({ stage: false });
+            else if (kind === 'loans') await saveLoansToGoogle({ stage: false });
+            else if (kind === 'houseExpenses') await saveHouseExpensesToGoogle({ stage: false });
+            else if (kind === 'buildingCosts') await saveBuildingCostsToGoogle({ stage: false });
+            else if (kind === 'scenarioSettings') await saveScenarioSettingsToGoogle({ stage: false });
         } catch (e) {
             console.warn(`Nachholen von ${kind} fehlgeschlagen, bleibt in der Warteschlange.`, e);
         }
@@ -1846,35 +2083,15 @@ export async function flushPendingUploads() {
 // ==================== SZENARIO-EINSTELLUNGEN ====================
 let scenarioSaveTimer = null;
 
-async function saveScenarioSettingsToGoogle() {
-    if (!state.scenarioSettingsFileId) {
-        state.scenarioSettingsFileId = await searchFile('scenario_settings.json');
-        if (!state.scenarioSettingsFileId) {
-            state.scenarioSettingsFileId = await createFileInGoogle('scenario_settings.json', state.scenarioSettings);
-            if (state.scenarioSettingsFileId) localStorage.setItem('gdrive_scenario_settings_file_id', state.scenarioSettingsFileId);
-        }
+async function saveScenarioSettingsToGoogle(options = {}) {
+    const syncSuccess = await saveJsonStateToGoogle('scenarioSettings', 'scenario_settings.json', options);
+    const syncStatusEl = document.getElementById('sc-save-status');
+    if (syncStatusEl) {
+        syncStatusEl.textContent = syncSuccess
+            ? `Gespeichert ${new Date().toLocaleTimeString('de-DE')}`
+            : 'Offline gespeichert — wird nachsynchronisiert';
     }
-    if (!state.scenarioSettingsFileId) {
-        markOffline('scenarioSettings');
-        return;
-    }
-
-    try {
-        const success = await uploadFileContent(state.scenarioSettingsFileId, state.scenarioSettings);
-        const statusEl = document.getElementById('sc-save-status');
-        if (success) {
-            setPendingFlag('scenarioSettings', false);
-            if (statusEl) statusEl.textContent = `Gespeichert ${new Date().toLocaleTimeString('de-DE')}`;
-        } else {
-            markOffline('scenarioSettings');
-            if (statusEl) statusEl.textContent = 'Offline gespeichert — wird nachsynchronisiert';
-        }
-    } catch (err) {
-        console.warn('Scenario Settings Sync fehlgeschlagen, wird vorgemerkt:', err);
-        markOffline('scenarioSettings');
-        const statusEl = document.getElementById('sc-save-status');
-        if (statusEl) statusEl.textContent = 'Offline gespeichert — wird nachsynchronisiert';
-    }
+    return syncSuccess;
 }
 
 function onScenarioSettingChanged() {
@@ -1905,10 +2122,12 @@ function onScenarioSettingChanged() {
     const statusEl = document.getElementById('sc-save-status');
     if (statusEl) statusEl.textContent = 'Speichere...';
 
+    if (state.mode === 'google') setPendingFlag('scenarioSettings', true);
+
     clearTimeout(scenarioSaveTimer);
-    scenarioSaveTimer = setTimeout(() => {
+    scenarioSaveTimer = setTimeout(async () => {
         if (state.mode === 'google') {
-            saveScenarioSettingsToGoogle();
+            await saveScenarioSettingsToGoogle({ stage: false });
         } else {
             localStorage.setItem('local_scenario_settings', JSON.stringify(state.scenarioSettings));
             if (statusEl) statusEl.textContent = `Gespeichert ${new Date().toLocaleTimeString('de-DE')}`;

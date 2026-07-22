@@ -2,9 +2,10 @@
 <html lang="de">
 <head>
     <meta charset="UTF-8">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://accounts.google.com; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob:; connect-src 'self' https://www.googleapis.com https://accounts.google.com https://oauth2.googleapis.com; frame-src https://accounts.google.com; worker-src 'self' blob:; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests">
     <!-- interactive-widget=resizes-content: Browser (Chrome/Android) verkleinern den
          Viewport bei offener Tastatur selbst; iOS nutzt das VisualViewport-Handling in app.js -->
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
     <title>Haushaltsbuch</title>
     <meta name="description" content="Mobiles Haushaltsbuch mit Google Drive Synchronisierung – Einnahmen und Ausgaben immer dabei.">
 
@@ -23,17 +24,11 @@
     <!-- Favicon -->
     <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
 
-    <!-- Google Fonts -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    
     <!-- Custom CSS -->
     <link rel="stylesheet" href="style.css">
     
     <!-- Google API Scripts -->
     <script src="https://accounts.google.com/gsi/client" async defer></script>
-    <script src="https://apis.google.com/js/api.js" async defer></script>
 </head>
 <body>
     <!-- App Container -->
@@ -184,14 +179,7 @@
                         <div class="form-row">
                             <div class="form-group half">
                                 <label for="filter-year">Jahr</label>
-                                <select id="filter-year" class="form-control">
-                                    <option value="All">Alle</option>
-                                    <option value="2024">2024</option>
-                                    <option value="2025">2025</option>
-                                    <option value="2026" selected>2026</option>
-                                    <option value="2027">2027</option>
-                                    <option value="2028">2028</option>
-                                </select>
+                                <select id="filter-year" class="form-control"></select>
                             </div>
                             <div class="form-group half">
                                 <label for="filter-month">Monat</label>
@@ -323,14 +311,7 @@
                             </div>
                             <div class="form-group half" style="margin-bottom: 0;">
                                 <label for="fixed-filter-year">Filter Jahr</label>
-                                <select id="fixed-filter-year" class="form-control">
-                                    <option value="All">Alle</option>
-                                    <option value="2024">2024</option>
-                                    <option value="2025">2025</option>
-                                    <option value="2026">2026</option>
-                                    <option value="2027">2027</option>
-                                    <option value="2028">2028</option>
-                                </select>
+                                <select id="fixed-filter-year" class="form-control"></select>
                             </div>
                         </div>
                     </div>
@@ -452,13 +433,7 @@
                         <div class="form-row">
                             <div class="form-group half" style="margin-bottom: 0;">
                                 <label for="months-year">Jahr</label>
-                                <select id="months-year" class="form-control">
-                                    <option value="2024">2024</option>
-                                    <option value="2025">2025</option>
-                                    <option value="2026" selected>2026</option>
-                                    <option value="2027">2027</option>
-                                    <option value="2028">2028</option>
-                                </select>
+                                <select id="months-year" class="form-control"></select>
                             </div>
                             <div class="form-group half" style="margin-bottom: 0;">
                                 <label for="months-partner">Person</label>
