@@ -1179,6 +1179,106 @@ body, html {
     margin-bottom: 0 !important;
 }
 
+/* Mini-Statistiken unter dem Monats-Überschuss */
+.dash-mini-stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    margin-top: 14px;
+    border-top: 1px solid var(--border-color);
+    padding-top: 12px;
+}
+
+.mini-stat {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 2px;
+}
+
+.mini-stat-value {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+}
+
+.mini-stat-label {
+    font-size: 10px;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+}
+
+/* Kategorien-Diagramm (Ausgaben aktueller Monat) */
+.dash-chart-card {
+    grid-column: 1 / -1;
+}
+
+.cat-chart {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 4px;
+}
+
+.cat-bar-row {
+    display: grid;
+    grid-template-columns: minmax(110px, 34%) 1fr auto;
+    align-items: center;
+    gap: 10px;
+    border-radius: 6px;
+    padding: 2px 4px;
+    transition: background-color 0.15s;
+}
+
+.cat-bar-row:hover {
+    background-color: rgba(255, 255, 255, 0.04);
+}
+
+.cat-bar-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+}
+
+.cat-bar-icon {
+    font-size: 13px;
+    flex-shrink: 0;
+}
+
+.cat-bar-name {
+    font-size: 12px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.cat-bar-track {
+    height: 10px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.05);
+    overflow: hidden;
+}
+
+.cat-bar-fill {
+    height: 100%;
+    border-radius: 4px;
+    background: linear-gradient(90deg, var(--accent), #818CF8);
+    transition: width 0.4s ease;
+}
+
+.cat-bar-value {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
 /* ==================== SEARCH & FILTER PANEL ==================== */
 .filter-panel {
     background-color: var(--bg-card);

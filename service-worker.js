@@ -1,6 +1,6 @@
 // Service Worker für die Haushaltsbuch-PWA.
 const CACHE_PREFIX = 'haushaltsbuch-';
-const CACHE_NAME = `${CACHE_PREFIX}v23`;
+const CACHE_NAME = `${CACHE_PREFIX}v24`;
 
 const APP_SHELL = [
     './',

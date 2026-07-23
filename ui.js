@@ -116,18 +116,45 @@ export function renderDashboard() {
     const bcBarEl = document.getElementById('dash-bc-progress-bar');
     if (bcBarEl) bcBarEl.style.width = `${bcPercent}%`;
 
-    // 3. Loans Overview Stats
-    const activeLoans = state.loans || [];
-    let totalDebt = 0;
-    activeLoans.forEach(l => {
-        updateSingleLoanCalculations(l);
-        totalDebt += parseFloat(l.remainingDebtToday || l.RemainingDebtToday || 0);
-    });
+    // 3. Zusatz-Statistiken zum aktuellen Monat
+    const countEl = document.getElementById('dash-stat-count');
+    if (countEl) countEl.textContent = monthTrans.length;
 
-    const loansCountEl = document.getElementById('dash-loans-count');
-    if (loansCountEl) loansCountEl.textContent = activeLoans.length;
-    const loansDebtEl = document.getElementById('dash-loans-debt');
-    if (loansDebtEl) loansDebtEl.textContent = formatCurrency(totalDebt);
+    const today = new Date();
+    const daysElapsed = (today.getFullYear() === year && today.getMonth() + 1 === month)
+        ? today.getDate()
+        : new Date(year, month, 0).getDate();
+    const dailyEl = document.getElementById('dash-stat-daily');
+    if (dailyEl) dailyEl.textContent = formatCurrency(expenses / Math.max(1, daysElapsed));
+
+    // Vergleich der Ausgaben mit dem Vormonat (gleicher Zeitraum: Tag 1 bis heute)
+    const prevYear = month === 1 ? year - 1 : year;
+    const prevMonth = month === 1 ? 12 : month - 1;
+    const prevExpenses = state.transactions
+        .filter(t => {
+            if (t.isDeleted || t.IsDeleted) return false;
+            if (t.isFixedCost || t.IsFixedCost) return false;
+            if (t.isIncome || t.IsIncome) return false;
+            const d = new Date(t.date || t.Date);
+            return d.getFullYear() === prevYear && (d.getMonth() + 1) === prevMonth && d.getDate() <= daysElapsed;
+        })
+        .reduce((sum, t) => sum + parseFloat(t.amount || t.Amount || 0), 0);
+
+    const prevEl = document.getElementById('dash-stat-prev-month');
+    if (prevEl) {
+        if (prevExpenses > 0) {
+            const deltaPct = ((expenses - prevExpenses) / prevExpenses) * 100;
+            prevEl.textContent = `${deltaPct >= 0 ? '+' : ''}${deltaPct.toFixed(0)} %`;
+            prevEl.style.color = deltaPct > 0 ? 'var(--color-expense)' : 'var(--color-income)';
+            prevEl.title = `Vormonat bis Tag ${daysElapsed}: ${formatCurrency(prevExpenses)}`;
+        } else {
+            prevEl.textContent = '–';
+            prevEl.style.color = '';
+            prevEl.title = 'Keine Vergleichsdaten im Vormonat';
+        }
+    }
+
+    renderDashCategoryChart(monthTrans, expenses);
 
     // 4. Recent Transactions List (Last 5 items)
     const recentContainer = document.getElementById('dash-recent-transactions');
@@ -174,7 +201,62 @@ export function renderDashboard() {
     }
 }
 
+// Horizontales Balkendiagramm: Ausgaben des aktuellen Monats je Kategorie.
+// Eine Farbreihe (Akzent), Werte als Textlabel am Balken, Top 6 + "Weitere".
+function renderDashCategoryChart(monthTrans, totalExpenses) {
+    const container = document.getElementById('dash-category-chart');
+    if (!container) return;
 
+    const totalEl = document.getElementById('dash-chart-total');
+    if (totalEl) totalEl.textContent = formatCurrency(totalExpenses);
+
+    const byCategory = new Map();
+    monthTrans.forEach(t => {
+        if (t.isIncome || t.IsIncome) return;
+        const cat = t.category || t.Category || 'Sonstiges';
+        const amt = parseFloat(t.amount || t.Amount || 0);
+        const entry = byCategory.get(cat) || { sum: 0, count: 0 };
+        entry.sum += amt;
+        entry.count += 1;
+        byCategory.set(cat, entry);
+    });
+
+    container.innerHTML = '';
+    if (byCategory.size === 0 || totalExpenses <= 0) {
+        container.innerHTML = '<div class="no-transactions">Noch keine Ausgaben in diesem Monat.</div>';
+        return;
+    }
+
+    const sorted = [...byCategory.entries()].sort((a, b) => b[1].sum - a[1].sum);
+    const top = sorted.slice(0, 6);
+    const rest = sorted.slice(6);
+    if (rest.length > 0) {
+        const restSum = rest.reduce((s, [, e]) => s + e.sum, 0);
+        const restCount = rest.reduce((s, [, e]) => s + e.count, 0);
+        top.push([`Weitere (${rest.length})`, { sum: restSum, count: restCount, isRest: true }]);
+    }
+
+    const maxSum = top[0][1].sum;
+    top.forEach(([cat, entry]) => {
+        const row = document.createElement('div');
+        row.className = 'cat-bar-row';
+        row.title = `${cat}: ${formatCurrency(entry.sum)} (${entry.count} Buchung${entry.count === 1 ? '' : 'en'}, ${Math.round((entry.sum / totalExpenses) * 100)} % der Ausgaben)`;
+
+        const pct = Math.max(2, (entry.sum / maxSum) * 100);
+        const icon = entry.isRest ? '📦' : getCategoryEmoji(cat);
+        row.innerHTML = `
+            <div class="cat-bar-label">
+                <span class="cat-bar-icon">${escapeHtml(icon)}</span>
+                <span class="cat-bar-name">${escapeHtml(cat)}</span>
+            </div>
+            <div class="cat-bar-track">
+                <div class="cat-bar-fill" style="width: ${pct}%;"></div>
+            </div>
+            <span class="cat-bar-value">${formatCurrency(entry.sum)}</span>
+        `;
+        container.appendChild(row);
+    });
+}
 
 // ==================== FILTERABLE TRANSACTIONS (AUSWERTUNG) ====================
 export function renderFilterableTransactions() {

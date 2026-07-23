@@ -118,6 +118,20 @@
                                 <span class="label font-bold">Überschuss:</span>
                                 <span id="dash-stat-surplus" class="value surplus-value">0,00 €</span>
                             </div>
+                            <div class="dash-mini-stats">
+                                <div class="mini-stat">
+                                    <span class="mini-stat-value" id="dash-stat-count">0</span>
+                                    <span class="mini-stat-label">Buchungen</span>
+                                </div>
+                                <div class="mini-stat">
+                                    <span class="mini-stat-value" id="dash-stat-daily">0 €</span>
+                                    <span class="mini-stat-label">Ø Ausgaben/Tag</span>
+                                </div>
+                                <div class="mini-stat">
+                                    <span class="mini-stat-value" id="dash-stat-prev-month">–</span>
+                                    <span class="mini-stat-label">vs. Vormonat</span>
+                                </div>
+                            </div>
                         </div>
 
                         <!-- Baukosten Overview Widget -->
@@ -141,21 +155,14 @@
                             </div>
                         </div>
 
-                        <!-- Loans Overview Widget -->
-                        <div class="summary-card dashboard-card">
+                        <!-- Monthly Category Chart Widget -->
+                        <div class="summary-card dashboard-card dash-chart-card">
                             <div class="summary-row header">
-                                <h3>Kredite</h3>
-                                <span class="badge" style="background: rgba(251,191,36,0.2); color: #fbbf24;">Restschuld</span>
+                                <h3>Ausgaben nach Kategorie</h3>
+                                <span id="dash-chart-total" class="badge">0,00 €</span>
                             </div>
-                            <div class="summary-details">
-                                <div class="stat-box">
-                                    <span class="label">Kredite</span>
-                                    <span id="dash-loans-count" class="value">0</span>
-                                </div>
-                                <div class="stat-box">
-                                    <span class="label">Restschuld</span>
-                                    <span id="dash-loans-debt" class="value expense">0,00 €</span>
-                                </div>
+                            <div id="dash-category-chart" class="cat-chart">
+                                <!-- Rendered by JS -->
                             </div>
                         </div>
                     </div>
