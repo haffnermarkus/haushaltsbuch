@@ -80,22 +80,75 @@ export {
 };
 
 // ==================== PWA: SERVICE WORKER REGISTRIERUNG ====================
+// Ein neuer Service Worker (nach einem Deploy) bleibt sonst dauerhaft im
+// "waiting"-Zustand: der Browser aktiviert ihn erst, wenn ALLE Tabs/Instanzen
+// der App vollständig geschlossen wurden. Bei einer als Homescreen-App
+// geöffneten PWA auf dem Handy passiert das faktisch nie (die App wird nur in
+// den Hintergrund gelegt, nicht beendet) — Updates (z.B. das neue Dashboard)
+// kamen dadurch nie an. Deshalb hier aktiv nach Updates suchen und den
+// wartenden Worker übernehmen lassen, sobald es sicher ist.
 if ('serviceWorker' in navigator) {
+    let registrationRef = null;
+    let refreshingForUpdate = false;
+
+    function isSafeToActivateUpdate() {
+        if (document.querySelector('.overlay.active')) return false; // Dialog/Formular offen
+        if (Object.keys(getPendingUploads()).length > 0) return false; // Sync noch nicht abgeschlossen
+        return true;
+    }
+
+    function tryActivateWaitingWorker() {
+        const waiting = registrationRef && registrationRef.waiting;
+        if (!waiting || !isSafeToActivateUpdate()) return;
+        waiting.postMessage('skipWaiting');
+    }
+
+    // Ein installierender Worker kann bereits VOR dem Anhängen dieses
+    // Listeners fertig sein (schneller Server / schnelles Netz) —
+    // 'updatefound' würde dann verpasst. Deshalb wird ein evtl. schon
+    // laufender Installationsvorgang zusätzlich direkt verfolgt.
+    function trackInstallingWorker(worker) {
+        if (!worker) return;
+        worker.addEventListener('statechange', () => {
+            if (worker.state === 'installed' && navigator.serviceWorker.controller) {
+                console.info('[PWA] Update heruntergeladen, wird aktiviert sobald sicher.');
+                tryActivateWaitingWorker();
+            }
+        });
+    }
+
     window.addEventListener('load', () => {
         navigator.serviceWorker.register('./service-worker.js')
-            .then(reg => console.log('[PWA] Service Worker registriert:', reg.scope))
+            .then(reg => {
+                registrationRef = reg;
+                console.log('[PWA] Service Worker registriert:', reg.scope);
+
+                // Deckt alle drei möglichen Zustände beim Eintreffen hier ab:
+                // Update bereits fertig und wartend, Update noch am Installieren,
+                // oder noch kein Update bekannt (dann greift 'updatefound').
+                tryActivateWaitingWorker();
+                trackInstallingWorker(reg.installing);
+                reg.addEventListener('updatefound', () => trackInstallingWorker(reg.installing));
+            })
             .catch(err => console.warn('[PWA] Service Worker Fehler:', err));
     });
 
-    // Übernimmt ein NEUER Service Worker (App-Update), einmal neu laden, damit
+    // Übernimmt ein NEUER Service Worker (App-Update): einmal neu laden, damit
     // sofort die aktuellen Dateien laufen — sonst zeigt die PWA bis zum
     // übernächsten Start noch die alte Version aus dem Cache.
-    const hadControllerAtLoad = !!navigator.serviceWorker.controller;
-    let hasReloadedForUpdate = false;
     navigator.serviceWorker.addEventListener('controllerchange', () => {
-        if (!hadControllerAtLoad || hasReloadedForUpdate) return; // Erstinstallation: kein Reload nötig
-        hasReloadedForUpdate = true;
-        console.info('[PWA] Update ist beim nächsten App-Start aktiv.');
+        if (refreshingForUpdate) return;
+        refreshingForUpdate = true;
+        window.location.reload();
+    });
+
+    // Beim Zurückkehren aus dem Hintergrund (Handy-Homescreen) aktiv nach
+    // einer neuen Version suchen und ein bereits wartendes Update aktivieren
+    // — ohne das würde eine lange geöffnete PWA nie von selbst prüfen.
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState !== 'visible' || !registrationRef) return;
+        tryActivateWaitingWorker();
+        registrationRef.update().catch(() => undefined);
     });
 }
 
